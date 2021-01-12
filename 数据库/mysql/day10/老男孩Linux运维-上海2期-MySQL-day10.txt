@@ -1,0 +1,505 @@
+
+=========================================老男孩Linux运维-上海2期-MySQL-day10===========================
+
+主从复制高级功能
+1.延时从库    ******
+SQL延时
+使用延时从库,修复逻辑损坏
+2.半同步复制  **
+ACK
+3.过滤复制    ******
+4.GTID复制    ******
+全局事务ID
+5.6后出现的功能,一般是在主从或者高可用环境中
+对主从数据一致性保证以及Failover更方便
+group commit    
+多线程(从库SQL),降低主从延时
+MGR
+
+5.架构演变
+5.1 高性能架构
+读写分离 :atlas  proxySQL   mysql-router
+分布式系统:MyCat,atlas-sharding 
+
+5.2 高可用架构
+单活: MHA  
+多活: MGR , Innodb Cluster,  PXC  
+
+
+6. MHA安装,故障简单处理
+
+软件构成 
+manager: 只需要在专门节点安装
+node:所有节点都安装
+
+配置: 
+要求1主2从结构,必须是独立节点,不支持多实例
+SSH互信
+
+自动故障恢复:
+/var/log/mha/app1/manager   日志 
+如果没有succuessfully，可能会看到的现
+
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++
+：
+
+db02：  show slave status\G  
+还能看到连接主库的信息。
+db03:show slave \G 
+有可能会看到连接db02失败
+/etc/mha/app1.cnf 会发现 server1的配置并没有被清理掉。
+以上的问题所在可能是，db02从库被手写入了重复事务，导致db03也做了重复事务。
+	 
+处理过程：
+db03 :
+stop slave;
+reset slave; 
+reset master;
+db02:
+stop slave;
+reset slave;
+reset master;
+db03  change master to  db02
+
+
+
+----------------------------------------------------
+14、 MHA 的vip功能(应用透明)
+14.1 参数：
+master_ip_failover_script=/usr/local/bin/master_ip_failover
+ 
+14.2 注意：/usr/local/bin/master_ip_failover，必须事先准备好此脚本
+
+14.3 将script.tar.gz 文件上传到/usr/local/bin，并解压
+
+
+
+14.4 修改脚本内容：
+vi  /usr/local/bin/master_ip_failover
+
+my $vip = '10.0.0.55/24';
+my $key = '0';
+my $ssh_start_vip = "/sbin/ifconfig eth0:$key $vip";
+my $ssh_stop_vip = "/sbin/ifconfig eth0:$key down";
+
+
+
+14.5 更改manager配置文件：
+vi /etc/mha/app1.cnf
+添加：
+master_ip_failover_script=/usr/local/bin/master_ip_failover
+
+
+
+14.6 主库上，手工生成第一个vip地址
+手工在主库上绑定vip，注意一定要和配置文件中的ethN一致，我的是eth0:0(1是key指定的值)
+
+ifconfig eth0:0 10.0.0.55/24
+
+
+14.7 重启mha
+masterha_stop --conf=/etc/mha/app1.cnf
+
+nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover < /dev/null > /var/log/mha/app1/manager.log 2>&1 &
+
++++++++++++++++报错++++++++
+
+ /usr/local/bin/master_ip_failover --command=status --ssh_user=root --orig_master_host=10.0.0.52 --orig_master_ip=10.0.0.52 --orig_master_port=3306
+/usr/bin/env: perl^M: No such file or directory
+Tue Nov 27 09:34:29 2018 - [error][/usr/share/perl5/vendor_perl/MHA/MasterMonitor.pm, ln229]  Failed to get master_ip_failover_script status with return code 127:0.
+
+原因: master_ip_failover中有中文字符
+处理方法:
+
+yum install -y  dos2unix
+dos2unix master_ip_failover
+
+
+再次启动MHA即可
+++++++++++++++++++++++++++
+
+14.8切换测试：
+停主库，看vip是否漂移
+db02 
+/etc/init.d/mysqld stop 
+
+14.9 处理故障(db02)
+/etc/init.d/mysqld start 
+
+CHANGE MASTER TO MASTER_HOST='10.0.0.51', MASTER_PORT=3306, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave
+
+14.10 修改manager配置文件 ,添加 db02节点信息
+vim /etc/mha/app1.cnf
+
+
+[server2]
+hostname=10.0.0.52
+port=3306
+
+14.11 启动MHA
+
+
+nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover < /dev/null > /var/log/mha/app1/manager.log 2>&1 &
+
+
+MHA工作原理
+
+1.manager节点,负责监控所有主从节点
+通过mha专用用户,进行监控服务状态
+以及主从的状态
+2.如果主库宕机,manager会通过设定的选主策略,
+选择一个新的主库,只读策略会自己动关闭.
+3.进行Failover(故障转移:数据补偿+节点切换)
+    3.1 如果主库能够ssh登录,
+     3.1.1 查看新主的GTID号码
+     再去原主库查询binlog的gtid,对比找出缺失
+     部分的事务.立即截取出,自动从库的/tmp
+    目录下.所有从库都立即补偿缺失部分数据
+     3.1.2 s1库 stop slave停掉原来主从关系,
+          reset slave all清除所有原从库信息
+    3.1.3 S2库 stop slave 停掉原主从关系,
+          reset slave all 清除所有原从库信息
+        重新change master to 到S1
+   3.2 如果连接不是原master
+        3.2.1 对比S1和S2的relay-log,找到relay-log
+        差异
+         3.2.2  S2应用差异日志
+         3.2.3  s1库 stop slave停掉原来主从关系,
+          reset slave all清除所有原从库信息
+          3.2.4 S2库 stop slave 停掉原主从关系,
+          reset slave all 清除所有原从库信息
+        重新change master to 到S1
+
+    3.3 vip会切换到新的主库,实现应用透明
+4. manager做完以上操作后,自动关闭,清理掉
+配置文件中的故障节点信息
+
+--------------------------------------------
+15 、 邮件提醒
+
+15.1 参数：
+report_script=/usr/local/bin/send
+15.2 准备邮件脚本
+send_report
+(1)准备发邮件的脚本(我们已经为大家准备好了script.tar.gz)
+	将以上脚本解压到 /usr/local/bin
+(2)将准备好的脚本添加到mha配置文件中,让其调用
+
+15.3 修改manager配置文件，调用邮件脚本
+vi /etc/mha/app1.cnf
+report_script=/usr/local/bin/send
+
+（3）停止MHA
+	masterha_stop --conf=/etc/mha/app1.cnf
+（4）开启MHA
+	
+		nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover < /dev/null > /var/log/mha/app1/manager.log 2>&1 &
+		
+(5) 关闭主库,看警告邮件	
+
+change master to master_host='10.0.0.51',master_user='repl',master_password='123' ,MASTER_AUTO_POSITION=1;
+
+
+-----------------------------
+
+
+16、binlog server（db03）
+
+16.1 参数：
+binlogserver配置：
+
+找一台额外的机器，必须要有5.6以上的版本，支持gtid并开启，我们直接用的第二个slave（db03）
+
+vim /etc/mha/app1.cnf 
+[binlog1]
+no_master=1
+hostname=10.0.0.53
+master_binlog_dir=/data/mysql/binlog
+
+
+16.2 创建必要目录
+提前创建好,这个目录不能和原有的binlog一致
+mkdir -p /data/mysql/binlog
+
+修改完成后，将主库binlog拉过来（从000001开始拉，之后的binlog会自动按顺序过来）
+
+
+16.3 拉取主库binlog日志
+
+cd /data/mysql/binlog     -----》必须进入到自己创建好的目录
+
+mysqlbinlog  -R --host=10.0.0.51 --user=mha --password=mha --raw  --stop-never mysql-bin.000001 &
+
+注意：
+binlog拉取和mha本身没啥关系，但是mha配置文件中加入了binlogserver，必须mha启动之前要去配置执行，否则mha起不来
+
+16.4 重启MHA 
+
+masterha_stop --conf=/etc/mha/app1.cnf
+
+nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover < /dev/null > /var/log/mha/app1/manager.log 2>&1 &
+		
+16.5 故障处理
+主库宕机，binlogserver 自动停掉，manager 也会自动停止。
+处理思路：
+
+1、重新获取新主库的binlog到binlogserver中
+2、重新配置文件binlog server信息
+3、最后再启动MHA
+
+----------------------------------------------------------------------------------------
+
+
+17、读写分离
+17.1 理念：
+主库只负责写操作
+从库负责所有读操作
+17.2 读写分离方案
+（1）直接在应用代码中加入判断
+（2）在应用端和数据库端中间，架设一个“拦截器”（“路由器”），统称的为“中间件”。
+
+17.3 拦截器应当具备的功能
+（1）需要提供连接协议
+（2）需要具备SQL层的语法语义检查功能
+（3）需要具备监控后端节点功能（节点是否在线，节点的角色）
+	 屏蔽故障节点
+（4）对于只读库，需要具备负载均衡的功能。
+
+17.4 读写分离产品介绍
+上课讲解：
+altas
+mycat
+
+自己研究：
+mysql router
+proxySQL
+
+
+源码 Github： https://github.com/Qihoo360/Atlas
+
+17.5 Atlas软件介绍
+Atlas（讲）
+Atlas-sharding（介绍）
+
+
+17.6 软件功能
+读写分离
+从库负载均衡
+自动分表
+IP过滤
+SQL语句黑白名单
+DBA可平滑上下线DB
+自动摘除宕机的DB
+
+17.7 软件使用
+
+(0) 恢复MHA正常运行
+
+ 1.启动故障库(db01)
+ /etc/init.d/mysqld start
+ CHANGE MASTER TO MASTER_HOST='10.0.0.52', MASTER_PORT=3306, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+mysql> start slave;
+
+2.启动binlogserver(db03)
+cd /data/mysql/binlog
+rm -rf *
+mysqlbinlog  -R --host=10.0.0.52 --user=mha --password=mha --raw  --stop-never mysql-bin.000001 &
+
+3.启动MHA
+nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover < /dev/null > /var/log/mha/app1/manager.log 2>&1 &
+
+masterha_check_status --conf=/etc/mha/app1.cnf 
+
+
+（1）下载地址：https://github.com/Qihoo360/Atlas/releases
+
+注意：
+1、Atlas只能安装运行在64位的系统上
+2、Centos 5.X安装 Atlas-XX.el5.x86_64.rpm，Centos 6.X安装Atlas-XX.el6.x86_64.rpm。
+3、后端mysql版本应大于5.1，建议使用Mysql 5.6以上
+（2）安装
+yum install -y Atlas*
+
+（3）配置文件使用
+
+[root@db03 ~]# cd /etc/mysql-proxy/
+[root@db03 mysql-proxy]# ls
+mysql-proxy.cnf
+[root@db03 mysql-proxy]# mv mysql-proxy.cnf mysql-proxy.cnf.bak
+[root@db03 mysql-proxy]# vim /etc/mysql-proxy/mysql-proxy.cnf
+
+[mysql-proxy]
+admin-username = user
+admin-password = pwd
+proxy-backend-addresses = 10.0.0.55:3306
+proxy-read-only-backend-addresses = 10.0.0.51:3306,10.0.0.53:3306
+pwds = repl:3yb5jEku5h4=,mha:O2jBXONX098=
+daemon = true
+keepalive = true
+event-threads = 8
+log-level = message
+log-path = /var/log/mysql-proxy/
+sql-log=ON
+proxy-address = 0.0.0.0:33060
+admin-address = 0.0.0.0:2345
+charset=utf8
+
+================================================
+(4)
+在Atlas中添加生产用户:root@'10.0.0.%',oldboy@'10.0.0.%'
+1.主库中添加两个用户(db02):
+mysql> grant all on *.* to root@'10.0.0.%' identified by '123';
+mysql> grant select,update,insert on oldboy.* to oldboy@'10.0.0.%' identified by '123';
+
+2.生成加密密码
+[root@db03 ~]# encrypt 123
+3yb5jEku5h4=
+
+3.更改atlas配置文件
+
+pwds = root:3yb5jEku5h4=,oldboy:3yb5jEku5h4=
+
+
+4. 重启proxy生效配置
+/etc/init.d/mysql-proxy restart
+
+
+（5）Atlas功能测试
+
+测试读操作：
+
+mysql -uroot -p123  -h 10.0.0.53 -P 33060 
+
+show variables  like 'server_id'
+
+(6) 测试写操作
+
+mysql> begin;
+mysql> show variables like 'server_id';
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| server_id     | 52    |
++---------------+-------+
+1 row in set (0.00 sec)
+
+
+=============================================================
+
+
+17.8 Atlas基本管理
+
+连接管理接口：
+
+
+mysql -uuser -ppwd -h127.0.0.1 -P2345
+
+
+打印帮助：
+mysql> select * from help;
+
+查询后端所有节点信息：
+
+
+mysql>  SELECT * FROM backends    ;
++-------------+----------------+-------+------+
+| backend_ndx | address        | state | type |
++-------------+----------------+-------+------+
+|           1 | 10.0.0.55:3306 | up    | rw   |
+|           2 | 10.0.0.51:3306 | up    | ro   |
+|           3 | 10.0.0.53:3306 | up    | ro   |
++-------------+----------------+-------+------+
+3 rows in set (0.00 sec)
+
+
+动态添加删除节点：
+REMOVE BACKEND 3;
+动态添加节点：
+ADD SLAVE 10.0.0.53:3306;
+保存配置到配置文件
+SAVE CONFIG;
+
+
+
+-----------------
+17.9 自动分表
+
+自动分表
+使用Atlas的分表功能时，首先需要在配置文件test.cnf设置tables参数。
+tables参数设置格式：数据库名.表名.分表字段.子表数量，
+比如：
+你的数据库名叫school，表名叫stu，分表字段叫id，总共分为2张表，
+那么就写为school.stu.id.2，如果还有其他的分表，以逗号分隔即可。
+用户需要手动建立2张子表（stu_0,stu_1，注意子表序号是从0开始的）。
+所有的子表必须在DB的同一个database里。
+当通过Atlas执行（SELECT、DELETE、UPDATE、INSERT、REPLACE）操作时，Atlas会根据分表结果（id%2=k），定位到相应的子表（stu_k）。例如，执行select * from stu where id=3;，Atlas会自动从stu_1这张子表返回查询结果。但如果执行SQL语句（select * from stu;）时不带上id，则会提示执行stu 表不存在。
+Atlas暂不支持自动建表和跨库分表的功能。
+Atlas目前支持分表的语句有SELECT、DELETE、UPDATE、INSERT、REPLACE
+
+
+什么是分表？
+表达到800w行我们考虑采用分表的策略
+
+基本分表策略
+1、分区（partition）
+2、atlas 自动分表
+
+tables参数设置格式：数据库名.表名.分表字段.子表数量，
+分表的思路：
+（1）预估分表的个数，例如3个（school库下的stu表）
+（2）准备分表，创建3个分表，并且和原表结构,命名规范是stu_0,_1,_2
+ create table stu_0 like stu;
+ create table stu_1 like stu;
+ create table stu_2 like stu;
+ (3) 配置文件中开启分表规则
+	tables = school.stu.id.3
+（4）测试分表的功能
+
+----
+操作：
+
+mysql -uroot -p123  -h 10.0.0.53 -P 33060  
+原始结构：
+create database school;
+use school;
+ 
+创建分表
+create table stu_0 (id int ,name varchar(20));
+create table stu_1 (id int ,name varchar(20));
+create table stu_2 (id int ,name varchar(20));
+开启分表规则：
+vim /etc/mysql-proxy/mysql-proxy.cnf
+添加以下配置：
+tables = school.stu.id.3
+
+重启atlas：
+/etc/init.d/mysql-proxy  restart
+
+测试分表功能：
+mysql -uroot -p123 -h 10.0.0.53 -P 33060
+use school 
+insert into stu values(1,'zhang3');
+insert into stu(id,name) values(11,'zhang3');
+insert into stu(id,name) values(12,'zhang3');
+insert into stu(id,name) values(13,'zhang3');
+
+18.ip过滤（白名单）
+
+client-ips=192.168.1.2, 192.168.2
+
+19、SQL黑名单
+Atlas会屏蔽不带where条件的delete和update操作，以及sleep函数。
+
+20、atlas-sharding 
+（1）不能跨分片访问数据 
+（2）不能跨分片join
+（3）在添加新分片时，只能实在range分片的方式下才能添加节点。
+
+--------------------------------
+
+
+
+
+

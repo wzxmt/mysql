@@ -1,0 +1,481 @@
+Mycat  
+
+1.分布式系统设计理念
+高性能:读和写都提升,读写分离,垂直分表,水平分片
+高可用:无需切换  Master   Standby Master 
+应用透明:8066
+分片策略:提供了较多的分片策略可供选择
+SQL审核:自主开发
+
+2.配置
+
+2.1  读写分离 
+2.2  高可用及读写分离
+2.3  垂直分表 
+2.4  范围分片
+2.5  枚举分片
+2.6  取模
+2.7  时间分片
+2.8  hash分片
+
+5. 取模分片（mod-long）：
+
+取余分片方式：分片键（一个列）与节点数量进行取余，得到余数，将数据写入对应节点
+
+
+比如说: 现在节点数量是2
+
+id / 2  ====> 0（dn1） ,1 （ dn2）
+
+
+id / 4 ----> 0,1,2,3
+1/4   1 
+2/4   2 
+3/4   3 
+4/4   0 
+5/4   1 
+
+
+
+<?xml version="1.0"?>  
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">  
+<mycat:schema xmlns:mycat="http://io.mycat/">
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="dn1"> 
+	<table name="t4" dataNode="dn1,dn2" rule="mod-long" />
+</schema>  
+	<dataNode name="dn1" dataHost="localhost1" database= "test" /> 
+	<dataNode name="dn2" dataHost="localhost2" database= "test" />  
+
+	<dataHost name="localhost1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3307" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.51:3309" user="root" password="123" /> 
+	</writeHost> 
+    <writeHost host="db3" url="10.0.0.52:3307" user="root" password="123"> 
+			<readHost host="db4" url="10.0.0.52:3309" user="root" password="123" /> 
+	</writeHost>        
+	</dataHost>  
+     
+	<dataHost name="localhost2" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3308" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.51:3310" user="root" password="123" /> 
+	</writeHost> 
+    <writeHost host="db3" url="10.0.0.52:3308" user="root" password="123"> 
+			<readHost host="db4" url="10.0.0.52:3310" user="root" password="123" /> 
+	</writeHost>   	
+	</dataHost>  
+</mycat:schema>
+
+
+
+vim rule.xml
+
+107                 <property name="count">2</property>
+
+
+准备测试环境
+	 
+创建测试表：
+mysql -S /data/3307/mysql.sock 
+use test
+create table t4 (id int not null primary key auto_increment,name varchar(20) not null);
+
+mysql -S /data/3308/mysql.sock 
+use test
+create table t4 (id int not null primary key auto_increment,name varchar(20) not null);
+
+重启mycat 
+mycat restart 
+
+
+测试： 
+mysql -uroot -p123456 -h10.0.0.52 -P8066
+
+use TESTDB
+insert into t4(id,name) values(1,'a');
+insert into t4(id,name) values(2,'b');
+insert into t4(id,name) values(3,'c');
+insert into t4(id,name) values(4,'d');
+
+分别登录后端节点查询数据
+mysql -S /data/3307/mysql.sock 
+use test
+select * from t4;
+
+mysql -S /data/3308/mysql.sock 
+use test
+select * from t4;
+
+===============
+15. 枚举分片
+
+分片规则: sharding-by-intfile
+
+
+mv  schema.xml schema.xml.3
+vim schema.xml
+
+<?xml version="1.0"?>  
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">  
+<mycat:schema xmlns:mycat="http://io.mycat/">
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="dn1"> 
+	<table name="t5" dataNode="dn1,dn2" rule="sharding-by-intfile" />
+</schema>  
+	<dataNode name="dn1" dataHost="localhost1" database= "test" /> 
+	<dataNode name="dn2" dataHost="localhost2" database= "test" />  
+
+	<dataHost name="localhost1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3307" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.51:3309" user="root" password="123" /> 
+	</writeHost> 
+    <writeHost host="db3" url="10.0.0.52:3307" user="root" password="123"> 
+			<readHost host="db4" url="10.0.0.52:3309" user="root" password="123" /> 
+	</writeHost>        
+	</dataHost>  
+     
+	<dataHost name="localhost2" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3308" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.51:3310" user="root" password="123" /> 
+	</writeHost> 
+    <writeHost host="db3" url="10.0.0.52:3308" user="root" password="123"> 
+			<readHost host="db4" url="10.0.0.52:3310" user="root" password="123" /> 
+	</writeHost>   	
+	</dataHost>  
+</mycat:schema>
+
+
+vim rule.xml
+
+<tableRule name="sharding-by-intfile"> 
+<rule> <columns>sheng</columns> 
+<algorithm>hash-int</algorithm> 
+</rule> 
+</tableRule> 
+
+
+  <function name="hash-int"
+                class="io.mycat.route.function.PartitionByFileMap">
+                <property name="mapFile">partition-hash-int.txt</property>
+                 <property name="type">1</property>
+                 <property name="defaultNode">0</property>
+</function>
+
+partition-hash-int.txt 配置： 
+10000=0 
+10010=1
+DEFAULT_NODE=0
+columns 标识将要分片的表字段，algorithm 分片函数， 其中分片函数配置中，mapFile标识配置文件名称
+
+
+
+准备测试环境 
+创建测试表：
+
+mysql -S /data/3307/mysql.sock 
+create database test charset utf8;
+use test
+create table t5 (id int not null primary key auto_increment,sheng varchar(20) not null);
+
+mysql -S /data/3308/mysql.sock 
+create database test charset utf8;
+use test
+create table t5 (id int not null primary key auto_increment,sheng varchar(20) not null);
+
+重启mycat 
+
+mycat restart 
+
+mysql -uroot -p123456 -h10.0.0.51 -P8066
+
+use TESTDB
+insert into t5(id,sheng) values(1,'北京');
+insert into t5(id,sheng) values(2,'上海');
+insert into t5(id,sheng) values(3,'北京');
+insert into t5(id,sheng) values(4,'上海');
+insert into t5(id,sheng) values(5,'天津');
+
+
+
+16 .  Mycat全局表 
+
+select  t1.name   ,t.x  from  t1 
+join t 
+
+
+select  t2.name   ,t.x  from  t2 
+join t 
+
+
+select  t3.name   ,t.x  from  t3 
+join t 
+
+
+使用场景：
+如果你的业务中有些数据类似于数据字典，比如配置文件的配置，
+常用业务的配置或者数据量不大很少变动的表，这些表往往不是特别大，
+而且大部分的业务场景都会用到，那么这种表适合于Mycat全局表，无须对数据进行切分，
+要在所有的分片上保存一份数据即可，Mycat 在Join操作中，业务表与全局表进行Join聚合会优先选择相同分片内的全局表join，
+避免跨库Join，在进行数据插入操作时，mycat将把数据分发到全局表对应的所有分片执行，在进行数据读取时候将会随机获取一个节点读取数据。 
+
+
+mv schema.xml schema.xml.55
+vim schema.xml 
+
+<?xml version="1.0"?>
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">
+<mycat:schema xmlns:mycat="http://io.mycat/">
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="sh1"> 
+	<table name="city_new" dataNode="sh1,sh2" rule="auto-sharding-long" />
+	<table name="countrycode_new" type="global" dataNode="sh1,sh2" /> 
+</schema> 
+        <dataNode name="sh1" dataHost="oldguo1" database= "world" />
+        <dataNode name="sh2" dataHost="oldguo2" database= "world" />
+        <dataHost name="oldguo1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType
+="1">
+                <heartbeat>select user()</heartbeat>
+        <writeHost host="db1" url="10.0.0.51:3307" user="root" password="123">
+                        <readHost host="db2" url="10.0.0.51:3309" user="root" password="123" />
+        </writeHost>
+    <writeHost host="db3" url="10.0.0.52:3307" user="root" password="123">
+                        <readHost host="db4" url="10.0.0.52:3309" user="root" password="123" />
+        </writeHost>
+        </dataHost>
+
+        <dataHost name="oldguo2" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType
+="1">
+                <heartbeat>select user()</heartbeat>
+        <writeHost host="db1" url="10.0.0.51:3308" user="root" password="123">
+                        <readHost host="db2" url="10.0.0.51:3310" user="root" password="123" />
+        </writeHost>
+    <writeHost host="db3" url="10.0.0.52:3308" user="root" password="123">
+                        <readHost host="db4" url="10.0.0.52:3310" user="root" password="123" />
+        </writeHost>
+        </dataHost>
+</mycat:schema>
+
+
+
+vim autopartition-long.txt
+0-2000=0
+2001-4079=1
+
+
+
+准备数据:
+
+mysqldump -S /data/3307/mysql.sock  world city_new>/tmp/city_new.sql
+mysqldump -S /data/3308/mysql.sock  world country_new >/tmp/coutry_new.sql
+
+
+mysql -S /data/3307/mysql.sock 
+use world 
+truncate table city_new;
+
+mysql -S /data/3308/mysql.sock 
+use world 
+truncate table country_new;
+
+
+
+建表:
+mysql -S /data/3308/mysql.sock 
+
+use  world;
+
+CREATE TABLE `city_new` (
+  `ID` int(11) NOT NULL AUTO_INCREMENT,
+  `Name` char(35) NOT NULL DEFAULT '',
+  `CountryCode` char(3) NOT NULL DEFAULT '',
+  `District` char(20) NOT NULL DEFAULT '',
+  `Population` int(11) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`ID`),
+  KEY `CountryCode` (`CountryCode`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+
+
+mysql -S /data/3307/mysql.sock 
+
+use world;
+
+ CREATE TABLE `country_new` (
+  `Code` char(3) NOT NULL DEFAULT '',
+  `Name` char(52) NOT NULL DEFAULT '',
+  `Continent` enum('Asia','Europe','North America','Africa','Oceania','Antarctica','South America') NOT NULL DEFAULT 'Asia',
+  `Region` char(26) NOT NULL DEFAULT '',
+  `SurfaceArea` float(10,2) NOT NULL DEFAULT '0.00',
+  `IndepYear` smallint(6) DEFAULT NULL,
+  `Population` int(11) NOT NULL DEFAULT '0',
+  `LifeExpectancy` float(3,1) DEFAULT NULL,
+  `GNP` float(10,2) DEFAULT NULL,
+  `GNPOld` float(10,2) DEFAULT NULL,
+  `LocalName` char(45) NOT NULL DEFAULT '',
+  `GovernmentForm` char(45) NOT NULL DEFAULT '',
+  `HeadOfState` char(60) DEFAULT NULL,
+  `Capital` int(11) DEFAULT NULL,
+  `Code2` char(2) NOT NULL DEFAULT '',
+  PRIMARY KEY (`Code`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+重启mycat 
+mycat restart 
+
+
+测试： 
+mysql -uroot -p123456 -h10.0.0.52 -P8066
+
+use TESTDB
+source  /root/city_insert.sql 
+source /root/country_insert_1.sql
+
+
+17. E-R分片
+
+为了防止跨分片join，可以使用E-R模式
+
+A   join   B
+on  a.xx=b.xx
+
+<table name="A" dataNode="dn1,dn2" rule="mod-long"> 
+       <childTable name="B" joinKey="id" parentKey="id" /> 
+</table> 
+
+
+/*!mycat:catlet=io.mycat.catlets.ShareJoin */select ci.name,co.name,ci.countrycode,ci.population  from city_new as ci join country_new as co on ci.countrycode=co.code where ci.population<100
+
+
+
+重启mycat 
+mycat restart
+
+
+
+
+===============
+Mycat 其他操作
+
+1.强制路由:
+
+应用强制走写： 
+一个查询SQL语句以/*balance*/注解来确定其是走读节点还是写节点。 
+1.6以后添加了强制走读走写处理： 
+强制走从： 
+/*!mycat:db_type=slave*/ select * from travelrecord 
+/*#mycat:db_type=slave*/ select * from travelrecord 
+强制走写： 
+/*#mycat:db_type=master*/ select * from travelrecord 
+/*!mycat:db_type=master*/ select * from travelrecord
+
+一般在测试节点读写功能时使用:
+我们推荐的方法:
+
+begin
+show variables like 'server_id';
+
+
+Mycat管理操作
+
+MyCAT自身有类似其他数据库的管理监控方式，可以通过Mysql命令行，登录管理端口（9066）执行相应的SQL进行管理
+登录：目前mycat有两个端口，8066 数据端口，9066 管理端口，命令行的登陆是通过9066 管理端口来操作，登录方式类似于mysql的服务端登陆。 
+mysql -h127.0.0.1 -utest -ptest -P9066 [-dmycat] 
+-h 后面是主机，即当前mycat按照的主机地址，本地可用127.0.0.1 远程需要远程ip 
+-u Mycat server.xml中配置的逻辑库用户 
+-p Mycat server.xml中配置的逻辑库密码 
+-P 后面是端口 默认9066，注意P 是大写 
+-d Mycat server.xml中配置的逻辑库 
+
+1.重新加载配置
+
+reload @@config_all 
+在MyCAT的命令行监控窗口运行： 
+reload @@config_all; 
+该命令用于更新配置文件，例如更新schema.xml文件后在命令行窗口输入该命令，可不用重启即进行配置文件更新。运行结果参考如下： 
+mysql> reload @@config_all; 
+Query OK, 1 row affected (0.29 sec) Reload config success
+
+show @@database 
+在MyCAT的命令行监控窗口运行： 
+show @@database; 
+该命令用于显示MyCAT的数据库的列表，对应schema.xml配置文件的schema子节点，参考运行结果如下： 
+mysql> show @@database; 
++----------+ 
+| DATABASE | 
++----------+ 
+| TESTDB | 
+
+
+2. server.xml----->mycat本身的配置
+例子:
+修改TESTDB-->oldguo
+
+vim schema.xml  ---->TESTDB   ---> oldguo
+vim server.xml  ---->TESTDB   ---> oldguo
+
+:%s/TESTDB/oldguo/g
+
+
+3. mycat 用户管理
+
+<user name="root" defaultAccount="true">
+<property name="password">123456</property>
+<property name="schemas">oldguo</property>
+</user>
+
+ <user name="user">
+<property name="password">user</property>
+<property name="schemas">oldguo</property>
+<property name="readOnly">true</property>
+</user>
+
+
+
+4. 分片查询
+show @@datanode 
+在MyCAT的命令行监控窗口运行： 
+show @@datanode; 
+该命令用于显示MyCAT的数据节点的列表，对应schema.xml配置文件的dataNode节点，参考运行结果如下： 
+mysql> show @@datanode; 
+
+
+5. 所有后端节点状态
+show @@heartbeat ;
+该命令用于报告心跳状态 
+RS_CODE 状态：OK_STATUS = 1;正常状态 
+ERROR_STATUS = -1; 连接出错 
+TIMEOUT_STATUS = -2;连接超时 
+INIT_STATUS = 0; 初始化状态 
+若节点故障，会连续默认5个周期检测，心跳连续失败，就会变成-1，节点故障确认，然后可能发生切换 
+参考运行结果如下所示： 
+mysql> show @@heartbeat; 
+
+
+6.查看用户连接情况
+
+show @@connection ;
+该命令用于获取Mycat的前端连接状态，即应用与mycat的连接 
+
+kill @@connection id,id,id 
+用于杀掉连接。 
+参考运行结果如下所示：
+mysql> kill @@connection 7; 
+Query OK, 1 row affected (0.01 sec)
+
+
+7.查看Mycat缓存情况
+show @@cache; 
+查看mycat缓存。 
+SQLRouteCache：sql路由缓存。 
+TableID2DataNodeCache ： 缓存表主键与分片对应关系。 
+ER_SQL2PARENTID ： 缓存ER分片中子表与父表关系。 
+
+
+8.查看数据源
+show @@datasource; 
+查看数据源状态，如果配置了主从，或者多主可以切换。 
+switch @@datasource name:index 
+切换数据源，name：schema中配置的dataHost 中name。 
+index：schema中配置的dataHost 的writeHost index 位标，即按照配置顺序从上到下的一次顺 序，从0开始。
+mysql> show @@datasource;

@@ -1,0 +1,469 @@
+-------------------老男孩Linux运维-上海2期-MySQL-day06----------------
+
+Innodb存储引擎核心特性
+
+
+1.事务
+一组数据操作执行步骤，这些步骤被视为一个工作单元
+用于对多个语句进行分组
+可以在多个客户机并发访问同一个表中的数据时使用
+所有步骤都成功或都失败
+如果所有步骤正常，则执行
+如果步骤出现错误或不完整，则取消
+
+
+2.事务是保证数据的ACID特性
+Atomic（原子性）
+	所有语句作为一个单元全部成功执行或全部取消。
+Consistent（一致性）
+	如果数据库在事务开始时处于一致状态，则在执行该事务期间将保留一致状态。 
+Isolated（隔离性）
+	事务之间不相互影响。
+Durable（持久性）
+	事务成功完成后，所做的所有更改都会准确地记录在数据库中。所做的更改不会丢失。
+
+begin
+语句1
+语句2
+commit
+
+3.标准事务控制语句
+
+begin;     开启事务
+DML
+DML
+commit;    结束事务
+
+begin;     开启事务
+DML
+DML
+rollback;
+
+
+
+autocommit=1  默认等于1,开启状态,自动提交功能
+
+A--->B 
+begin
+A-50 
+B+50
+commit
+
+关闭自动提交:
+ oldguo [(none)]>set autocommit=0;
+ oldguo [(none)]>set global autocommit=0;
+
+永久修改:
+my.cnf
+autocommit=0
+
+
+4.隐式提 交
+
+用于隐式提交的 SQL 语句：
+	START TRANSACTION
+	SET AUTOCOMMIT = 1 
+导致提交的非事务语句：
+	DDL语句：	（ALTER、CREATE 和 DROP）
+	DCL语句：	（GRANT、REVOKE 和 SET PASSWORD）
+	锁定语句：（LOCK TABLES 和 UNLOCK TABLES）
+导致隐式提交的语句示例：
+	TRUNCATE TABLE
+	LOAD DATA INFILE
+	SELECT FOR UPDATE
+
+5.Innodb 存储引擎物理存储层
+
+表空间(t1.ibd)----->
+段 一个表就是一个段(除了分区表)
+区 连续的多个页
+页 Page(16KB)
+
+6.存储引擎日志
+redo:重做日志
+Redo是什么？	
+	redo,顾名思义“重做日志”，是事务日志的一种。
+作用是什么？
+	在事务ACID过程中，实现的是“D”持久化的作用,AC的特性也和redo有关
+存储位置:数据路径下存放,默认两个日志,默认大小是48M,轮询覆盖形式使用日志文件
+
+
+show variables like '%log%';
+
+innodb_log_file_size=50331648                           
+innodb_log_files_in_group=2
+
+ib_logfile0
+ib_logfile1
+
+redo记录的是什么?
+内存数据页的变化
+
+LSN:日志序列号(数据变化的版本号)
+data page
+logfile 	
+data buffer
+redo log buffer 
+
+
+数据库要求:启动时,必须保证data page和logfile 中LSN一致才能,正常打开数据,否则就需要自动回复
+可以在CSR过程中,实现前滚的功能	
+	
+undo:
+undo是什么？	
+undo,顾名思义“回滚日志”，是事务日志的一种。
+作用是什么？
+在事务ACID过程中，实现的是“ACI”原子性,一致性的作用。
+隔离级别实现
+
+undo记录了什么?
+数据页修改之前的状态,TXID
+
+作用:
+1.rollback
+2.CSR过程中,实现回滚
+
+锁机制:
+
+什么是“锁”？
+“锁”顾名思义就是锁定的意思。
+“锁”的作用是什么？
+在事务ACID过程中，“锁”和“隔离级别”一起来实现“I”隔离性的作用。
+
+
+====================
+日志管理：
+
+1.错误日志
+1.1 作用
+记录启动\关闭\日常运行过程中,状态信息,警告,错误 
+1.2 错误日志配置
+默认就是开启的:  /数据路径下/hostname.err
+手工设定:
+vim /etc/my.cnf 
+log_error=/var/log/mysql.log
+
+重启生效
+show variables like 'log_error';
+1.3 日志内容查看
+主要关注[error],看上下文
+
+2. binlog:二进制日志
+2.1 作用
+	(1)备份恢复
+	(2)主从环境
+2.2 binlog配置(5.7必须加server_id)
+vim /etc/my.cnf
+[mysqld]
+server_id=6                                
+log_bin=/data/mysql/mysql-bin
+binlog_format=row
+重启数据库生效
+
+注意: 
+
+log_bin=/data/mysql/mysql-bin
+
+/data/mysql/ 存放二进制日志的目录, 必须创建好,必须对mysql有权限
+mysql-bin    日志文件名字的前缀
+
+mysql-bin.000001
+
+
+2.3 二进制日志记录了什么?
+mysql数据库所有变更类的SQL语句
+DDL ,DCL,记录方式:SQL语句直接记录下来
+DML: 已commit的DML
+	记录格式:
+	(SBR)statement --->5.6默认
+	update 
+	insert
+	delete
+	特点:可读性较高,日志量较少,将来恢复数据时可能是错误数据	
+	insert into t1(stime) values(now())
+	
+	row     --->5.7版本默认
+	记录数据行的变化
+	特点:可读性不好,日质量较大,数据够精确
+	binlog_format=row	
+	
+	set binlog_format=row;
+	set global binlog_format=row;
+	永久修改:/etc/my.cnf
+	binlog_format=row
+	
+	
+2.4 event是什么?
+二进制日志的最小记录单元
+对于DDL,DCL,一个语句就是一个event
+对于DML语句来讲:例如以下列子,就被分为了4个event
+	begin;
+	DML1
+	DML2
+	commit;
+
+event的组成
+开始位置(#at 157)+事件内容+结束位置(下一个#at 890,或者是end_log_pos 890)
+
+
+2.5 日志文件查看
+
+log_bin参数设置的路径,可以找到二进制日志
+
+show binary logs;
+show master status;
+
+2.6 日志内容查看
+
+2.6.1 event查看
+show master status;
+show binlog events in 'mysql-bin.000002';
+录入数据,看事件信息:
+create database testdb;
+create table t1(id int);
+insert into t1 values(1);
+commit;
+show binlog events in 'mysql-bin.000002';
+
+2.6.2 binlog文件内容详细查看
+mysqlbinlog /data/mysql/mysql-bin.000002 
+mysqlbinlog --base64-output=decode-rows  -vvvv /data/mysql/mysql-bin.000002 
+mysqlbinlog -d testdb /data/mysql/mysql-bin.000002
+
+2.7 日志截取
+
+mysqlbinlog  --start-position=321      --stop-position=513  /data/mysql/mysql-bin.000002 >/tmp/binlog.sql
+
+set sql_log_bin=0;
+source /tmp/binlog.sql
+set sql_log_bin=1;
+
+
+2.8 使用二进制日志恢复数据案例
+
+数据库的故障(损坏),原因
+
+1.软件损坏了
+2.数据损坏了
+物理损坏
+硬件损坏,数据文件,数据页
+逻辑损坏
+SQL导致的误删除,误修改 
+只要你拥有全量的binlog,可以把数据库恢复到任意的时间点.
+
+故障案例模拟:
+
+ oldguo [testdb]>create database db charset utf8;
+ oldguo [testdb]>use db;
+ oldguo [db]>create table t1 (id int);
+ oldguo [db]>insert into t1 values(1),(2),(3);
+ oldguo [db]>insert into t1 values(4),(5),(6);
+ oldguo [db]>commit
+ oldguo [db]>update t1 set id=30 where id=3;
+ oldguo [db]>commit;
+ oldguo [db]>delete from t1 where id=4;
+ oldguo [db]>commit;
+ oldguo [db]>drop table t1;
+
+如何恢复?
+查看日志事件:
+ oldguo [db]>show master status ;
+ oldguo [db]>show binlog events in 'mysql-bin.000002';
+
+查找需要截取的日志的开始位置,结束位置 
+mysqlbinlog --start-position=614 --stop-position=1470  /data/mysql/mysql-bin.000002 >/tmp/binlog.sql
+
+恢复数据:
+set sql_log_bin=0;
+source /tmp/binlog.sql
+select * from t1;
+set sql_log_bin=1;
+
+
+2.9 二进制日志其他操作 
+
+2.9.1 自动清理日志
+show variables like '%expire%';
+自动清理时间,是要按照全备周期+1
+set global expire_logs_days=8;
+
+永久生效:
+my.cnf 
+expire_logs_days=8;
+企业建议,至少保留15天
+
+2.9.2 手工清理
+PURGE BINARY LOGS BEFORE now() - INTERVAL 3 day;
+PURGE BINARY LOGS TO 'mysql-bin.000010';
+
+注意:不要手工 rm binlog文件
+1. my.cnf binlog关闭掉,启动数据库
+2.把数据库关闭,开启binlog,启动数据库
+
+删除所有binlog,并从000001开始重新记录日志
+reset master;
+
+2.9.3 日志是怎么滚动
+
+flush logs;   
+重启mysql也会自动滚动一个新的
+日志文件达到1G大小(max_binlog_size)
+备份时,加入参数也可以自动滚动
+
+3.slow_log 慢日志
+3.1 作用:
+记录慢SQL语句的日志
+3.2 开启慢日志(默认没开启)
+开关:
+slow_query_log=1   
+文件位置及名字  
+slow_query_log_file=/data/mysql/slow.log
+设定慢查询时间:
+long_query_time=0.01
+没走索引的语句也记录:
+log_queries_not_using_indexes
+
+vim /etc/my.cnf 
+
+slow_query_log=1   
+slow_query_log_file=/data/mysql/slow.log
+long_query_time=0.01
+log_queries_not_using_indexes
+
+
+/etc/init.d/mysqld restart
+
+
+mysqldumpslow 分析慢日志
+mysqldumpslow -s c -t 10 /data/mysql/slow.log
+https://www.percona.com/downloads/percona-toolkit/LATEST/
+
+toolkit工具包中的命令:
+pt-query-diagest
+
+=============================================
+备份恢复  (重点内容)
+
+运维的备份恢复相关的职责
+1.设计备份策略
+2.日常备份
+3.恢复演练
+4.故障恢复
+5.迁移
+
+
+1.备份类型
+
+热备
+在数据库正常业务是,备份数据,并且能够一致性恢复
+冷备
+关闭数据库业务,数据库没有任何变更的情况下,进行备份数据.
+温备
+锁表备份,只能查询不能修改
+
+2.备份方式及工具介绍
+
+逻辑备份:
+基于SQL语句进行备份:
+mysqldump 
+mysqlbinlog
+
+
+物理备份:
+基于磁盘文件备份:
+cp
+xtrabackup(XBK)
+
+3.备份策略
+全备:全库备份
+增量:备份变化的数据
+逻辑备份=mysqldump+mysqlbinlog
+物理备份=xtrabackup
+备份周期:根据数据量设计备份周期
+
+4.备份工具使用
+
+4.1 mysqldump (逻辑备份的客户端工具)
+(1)通用参数
+	-u  -p   -S   -h  -P  
+mysqldump -uroot -p 
+(2)备份专用基本参数
+-A      全备参数
+
+例子1--全备:
+mkdir /backup
+mysqldump -uroot -p -A >/backup/full.sql
+Enter password: 
+
+报错:
+mysqldump: Error 1814: Tablespace has been discarded for table 'course' when dumping table `course` at row: 0
+处理:
+mysql -uroot -p
+drop database school;
+
+再次备份:
+mysqldump -uroot -p -A >/backup/full.sql
+
+
+-B db1  db2  db3  备份多个单库
+
+例子2--单库或多库备份,比较适合于做跨版本的迁移,只备份生产库
+mysqldump -uroot -p -B oldboy world >/backup/bak.sql
+
+
+备份单个或多个表
+例子3--world数据库下的city,country表
+mysqldump -uroot -p world city country >/backup/bak1.sql
+
+以上备份恢复时:必须库事先存在,并且ues才能source恢复
+
+
+注意:
+1.
+mysqldump -uroot -p -B world >/backup/oldboy.sql
+2. 
+mysqldump -uroot -p world  >/backup/oldboy1.sql
+
+以上两个语句都是可以备份world数据库下所有表
+-B添加了
+create database  和 use
+
+(3)特殊参数1使用
+-R          备份存储过程及函数
+--triggers  备份触发器
+
+例子4
+mysqldump -uroot -p  -A  -R --triggers  >/backup/full.sql
+
+(4) 特殊参数2使用
+++++++++++++++++++++++++
+每天晚上12点全备
+上午10点钟,数据库被误删除了
+二进制日志截取将成为我们比较棘手的问题
+起点:怎么办
+终点:好找
++++++++++++++++++++++++
+-F  在备份开始时,刷新一个新binlog日志
+例子5:
+mysqldump -uroot -p  -A  -R --triggers -F >/backup/full.sql
+
+
+--master-data=2    
+以注释的形式,保存备份开始时间点的binlog的状态信息
+在不加--single-transaction 
+加上--single-transaction ,对innodb可以不锁表热备,对非innodb表可以实现自动锁表功能
+
+例子6: 备份必加参数
+mysqldump -uroot -p  -A  -R --triggers --master-data=2 --single-transaction  >/backup/full.sql
+
+功能:
+(1)以注释的形式,保存备份开始时间点的binlog的状态信息
+(2)对innodb可以不锁表热备
+(3)对非innodb表可以实现自动锁表功能
+
+
+
+
+
+
+

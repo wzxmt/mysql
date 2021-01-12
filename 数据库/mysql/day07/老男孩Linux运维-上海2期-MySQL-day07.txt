@@ -1,0 +1,622 @@
+=====================老男孩Linux运维-上海2期-MySQL-day07=========================
+
+上集回顾:
+
+innodb核心功能
+事务:
+ACID
+
+事务标准的控制语句
+begin
+commit
+rollback
+autocommit=0
+
+隐式提交
+DDL  DCL  Lock 
+事务日志
+
+redo:记录内存数据页的变化,在故障自动恢复过程中,实现前滚操作
+磁盘区域:ib_logfile0   iblogfile1 
+undo:记录内存数据页修改之前的状态(快照),在故障自动恢复过程,实现回滚操作
+磁盘区域: ibdata1
+
+ACD
+隔离级别
+RN
+RC
+RR(前提是表中有索引,GAP,Next-lock)
+RS
+
+锁
+I
+
+日志管理
+1. 错误日志
+log_error=
+[error]
+2. 二进制日志
+2.1 作用:
+备份恢复
+主从复制
+2.2 如何配置
+server_id=6
+log_bin=/data/mysql/mysql-bin
+binlog_format=row
+2.3 查看二进制日志
+show master status;
+show binary logs;
+show binlog events in ''
+mysqlbinlog 
+-d 
+--base64-output=decode-rows -vvv   翻译一下
+--start-position 
+--stop-position
+
+set sql_log_bin=0;
+source
+
+
+2.4 其他操作
+
+日志滚动
+flush logs ;
+重启mysql
+1G
+-F 
+日志删除
+expire_logs_days=
+企业建议至少保留两轮全备周期的日志
+
+help purge
+
+PURGE BINARY LOGS TO 'mysql-bin.010';
+PURGE BINARY LOGS BEFORE '2008-04-02 22:46:26';
+
+
+3. 慢日志
+
+3.1 作用:记录运行较慢的SQL语句
+3.2 如何配置:
+slow_query_log=1
+slow_query_log_file=/data/mysql/slow.log
+long_query_time=0.01
+log_queries_not_using_indexes=1
+
+查看参数的方法:
+show variables like '%slow%';
+show variables like '%time';
+show variables like '%indexes';
+
+3.3 pt-query-diagest
+	yum install -y perl*
+
+
+4.备份恢复 
+
+mysqldump 
+
+-u  -p  -h  -S   -P
+
+-A 全备备份 
+-B(多库备份)   
+多表备份	
+
+-R   --triggers
+
+--master-data=2    
+
+--single-transation   基于快照的备份
+
+=================================================
+适合多引擎混合（例如：myisam与innodb混合）的备份命令如下：
+mysqldump -uroot -p -A -R --triggers --master-data=2 --single-transaction |gzip >/backup/all_$(date +%F-%T).sql.gz
+
+报错:超出	max_allowed_packet大小
+--max_allowed_packet=128M 	 在备份时指定最大数据包大小
+	
+
+mysqldump恢复
+
+set sql_log_bin=0;
+source source /backup/all_2018-11-22-09:57:37.sql
+
+注意:尽量不要在生产库直接恢复,
+我们可以找一个临时的测试库进行恢复,
+验证没问题,把问题数据导出并导入生产库.
+
+==============================================
+
+面试问题:
+1. 你们数据量多大,对于互联网公司
+不要超过  100G
+2. 使用什么备份工具,mysqldump或XBK,备份花费时间
+
+rdbmsa.com   
+
+背景环境：
+	正在运行的网站系统，mysql数据库，数据量25G，日业务增量10-15M。
+备份方式：
+	每天23:00点，计划任务调用mysqldump执行全备脚本
+故障时间点：
+	上午10点，误删除了一个表
+
+恢复思路:
+0. 挂出维护页面
+1. 找测试库
+2. 恢复全备到测试库
+3. 截取二进制日志到误删除时间点,恢复到测试库
+起点:master-data=2,找备份文件,获取到日志名字和位置号
+终点:分析最后一个binlog,找到误删除事件的位置点
+4. 验证数据,将故障表导出,导入会生产库
+5. 开启业务
+
+
+模拟故障
+1. 模拟昨天23:00的全备
+mysqldump -uroot -p -A -R --triggers --master-data=2 --single-transaction>all.sql
+
+2. 模拟白天的业务
+create database baiduyun charset utf8;
+use baiduyun;
+create table t1 (id int);
+insert into t1 values(1),(2),(3);
+commit;
+insert into t1 values(11),(12),(13);
+commit;
+update t1 set id=10 where id=1;
+commit;
+
+select * from t1;
++------+
+| id   |
++------+
+|   10 |
+|    2 |
+|    3 |
+|   11 |
+|   12 |
+|   13 |
+
+3. 模拟10的数据误删除
+
+drop database oldboy;
+drop database baiduyun;
+drop database world;
+drop database wordpress;
+
+4.准备恢复
+查看 备份文件第22行:
+
+-- CHANGE MASTER TO MASTER_LOG_FILE='mysql-bin.000016', MASTER_LOG_POS=425;
+
+
+截取二进制日志:
+mysql -uroot -p
+show binlog events in 'mysql-bin.000016';
+
+mysql-bin.000016
+425
+1231
+
+截取binlog
+mysqlbinlog --start-position=425 --stop-position=1231 /data/mysql/mysql-bin.000016 >/backup/binlog.sql
+
+[root@db01 backup]# ls
+all.sql  binlog.sql
+
+
+5.开始恢复
+set sql_log_bin=0;
+source /backup/all.sql
+source /backup/binlog.sql
+
+
+mysqldump 备份策略
+1.比较适合于小于100G以下数据量
+2.mysqldump原生态不支持增量
+3.如果要实现增量,可以配合binlog实现增量
+4.如果对于大数据量的数据库备份,可以从架构上拆分,分别备份
+
+优点:
+1. 可读性强
+2. 文本形式备份,压缩比比较高
+
+============================================
+物理备份工具:
+XBK(Percona Xtrabackup):重点讲解
+MEB(MySQL Enterprise Backup):自己了解
+
+
+1、安装及介绍
+
+yum -y install perl perl-devel libaio libaio-devel perl-Time-HiRes perl-DBD-MySQL
+
+wget https://www.percona.com/downloads/XtraBackup/Percona-XtraBackup-2.4.4/binary/redhat/7/x86_64/percona-xtrabackup-24-2.4.4-1.el7.x86_64.rpm
+
+yum -y install percona-xtrabackup-24-2.4.4-1.el7.x86_64.rpm
+
+备份命令:
+xtrabackup
+innobackupex ******
+
+
+2. 备份实现原理
+(1)非innodb引擎,锁定表,直接表的数据文件 
+(2)对于Innodb引擎备份过程
+	在备份开始的时刻(10:00开始,备份结束10:02),立即触发checkpoint动作,将内存数据页刷写到磁盘
+	拷贝此时所有的数据文件(LSN=1000),在此过程中产生的日志文件(to_lsn=1000 redo last_lsn=1020 和undo)也进行备份
+	数据页+日志	
+	
+热备:备份某时间点的数据,将备份过程中产生的变化也备份出来
+
+
+3.备份命令简单使用及备份内容介绍
+
+innobackupex --user=root --password=123 /backup
+
+
+xtrabackup_binlog_info:备份时间点二进制日志的信息
+
+xtrabackup_checkpoints:
+备份类型: full     incremental
+from_lsn = 0
+to_lsn = 214180776
+last_lsn = 214180776
+
+xtrabackup_info:详细显示
+
+xtrabackup_logfile:redo日志文件(备份期间产生的)
+
+
+
+4. 全备实现
+(1)将备份生成到/backup/full,不加时间戳目录
+(2) 恢复全备 
+注: 恢复的路径必须是空的,mysql不需要启动
+	1. 停数据库
+pkill mysqld
+	2. 删数据
+rm -rf /application/mysql/data/* 
+	3.准备备份(使用redo前滚,使用undo回滚,保证数据一致性)
+innobackupex --apply-log /backup/full/
+
+	4.恢复数据:
+cd /backup/full
+cp -a  /application/mysql/data/
+或者:
+innobackupex --copy-back /backup/full/
+
+
+5.改权限,起数据库
+
+chown -R mysql. /application/mysql/data/*
+/etc/init.d/mysqld start
+
+5. 增量备份实现
+5.1 增量备份介绍
+基于上一次备份的增量备份,优点是节约磁盘空间和时间
+局限性: 依赖于全备和上次备份
+XBK工具,需要将需要的增量合并到全备中才能恢复.
+5.2 增量备份策略设计及实现
+备份策略: 每周日全备,周一到周六是增量.
+(1)全备
+rm -rf /backup/*
+innobackupex --user=root --password=123 --no-timestamp /backup/full
+(2)模拟数据
+ create database full charset utf8;
+ use full;
+ create table t1(id int);
+ insert into t1 values(1),(2),(3);
+ commit;
+(3)周一的增量备份
+innobackupex --user=root --password=123 --no-timestamp --incremental-basedir=/backup/full --incremental /backup/inc1
+
+--incremental-basedir=   : 上次备份的路径. 
+--incremental            :打开增量备份的功能
+
+(4)周二的数据模拟
+create database inc1 charset utf8;
+use inc1
+create table t2(id int);
+insert into t2 values(1),(2),(3);
+commit;
+
+(5)周二的增量备份
+innobackupex --user=root --password=123 --no-timestamp --incremental-basedir=/backup/inc1 --incremental /backup/inc2
+
+
+查看各个备份的LSN信息
+cat /backup/full/xtrabackup_checkpoints /backup/inc1/xtrabackup_checkpoints /backup/inc2/xtrabackup_checkpoints
+===================================
+backup_type = full-backuped
+from_lsn = 0
+to_lsn = 214180914
+last_lsn = 214180914
+compact = 0
+recover_binlog_info = 0
+===================================
+backup_type = incremental
+from_lsn = 214180914
+to_lsn = 214186441
+last_lsn = 214186441
+compact = 0
+recover_binlog_info = 0
+==================================
+backup_type = incremental
+from_lsn = 214186441
+to_lsn = 214191822
+last_lsn = 214191822
+compact = 0
+recover_binlog_info = 0
+==============================
+
+(6)全备+增量的恢复
+(6.1) 准备备份
+
+--apply-log (redo+undo)
+--redo-only (redo )
+	
+全备准备:
+innobackupex --apply-log --redo-only /backup/full/
+第一次增量合并并准备:
+innobackupex  --apply-log --redo-only  --incremental-dir=/backup/inc1  /backup/full
+第二次增量合并并准备:
+innobackupex  --apply-log  --incremental-dir=/backup/inc2 /backup/full	
+全备再次准备:
+innobackupex --apply-log /backup/full/	
+ 恢复数据(同之前的步骤)
+略.
+
+	
+	
+	
+ --redo-only          This option should be used when preparing the base full
+                      backup and when merging all incrementals except the last
+                      one. This forces xtrabackup to skip the "rollback" phase
+                      and do a "redo" only. This is necessary if the backup
+                      will have incremental changes applied to it later. See
+                      the xtrabackup documentation for details.
+
+
+			
+5.3 xtrabackup 全备+增量+binlog故障案例演练
+
+背景：
+某大型网站，mysql数据库，数据量500G，每日更新量100M-200M
+备份策略：
+xtrabackup，每周日23:00进行全备，周一到周六23:00进行增量备份。
+故障场景：
+周三下午2点出现数据库意外删除表操作。
+
+思路:
+1.确认备份周日full+周一inc1+周二inc2
+2.进行备份准备
+3.找测试库,使用备份恢复数据,目前数据状态:周二晚上23:00时间点
+4.截取周二备份时间点到周三下午误删除之前二进制日志
+起点:备份中会记录
+终点:分析日志文件事件
+5.恢复二进制日志,导出故障表,导入回生产库.
+
+如何恢复？
+
+
+故障模拟:
+
+全备周日:
+rm -rf /backup/*
+innobackupex --user=root --password=123 --no-timestamp /backup/full
+
+(2)模拟周一数据
+create database day1 charset utf8;
+use day1
+create table t1(id int);
+insert into t1 values(1),(2),(3);
+commit;
+(3)周一的增量备份
+innobackupex --user=root --password=123 --no-timestamp --incremental-basedir=/backup/full --incremental /backup/inc1
+
+(4)周二的数据模拟
+create database day2 charset utf8;
+use day2
+create table t2(id int);
+insert into t2 values(1),(2),(3);
+commit;
+
+(5)周二的增量备份
+innobackupex --user=root --password=123 --no-timestamp --incremental-basedir=/backup/inc1 --incremental /backup/inc2
+
+(6)周三数据变化
+
+create database day3 charset utf8;
+use day3
+create table t3(id int);
+insert into t3 values(1),(2),(3);
+commit;
+
+(7)模拟下午2:00误删除操作
+use day1
+drop table t1;
+
+
+(8)恢复过程:(恢复步骤同之前)
+略.
+
+不同点是:需要截取二进制日志.
+
+
+思考问题:
+如果误删除表只有1M,以上方案是否合适?
+
+
+6.xtraback备份中单独恢复单表
+alter table t1 discard tablespace;
+alter table t1 import tablespace;
+
+
+
+扩展:
+7. binlog flashback
+DML语句 row
+8. 分析二进制日志,同一张表的操作提取出来
+9. 怎么从mysqldump 全备中提取某张表的备份
+
+
+RDS:
+
+TPS:
+QPS:
+
+快照.
+备份也要定期备份到公司本地
+
+
+自搭建的mysql服务器
+
+=====================================================
+
+主从复制:
+
+1.前提:
+(1)准备2个以上的mysql实例(1主1从)
+(2)每台实例server_id不同的
+(3)主库方面创建专用的复制用户
+(4)主库必须开启二进制日志
+(5)从库需要初始化数据,保证和主库数据在一个时间点上一致
+
+2.开始搭建主从复制
+2.1  准备多个mysql实例(3307(master),3308(slave1),3309(slave2))
+
+=================================================================
+1. 创建多个专用目录
+mkdir /data/330{7..9}/data -p
+
+2. 准备多个配置文件
+vim /data/3307/my.cnf
+
+[mysqld]
+basedir=/application/mysql
+datadir=/data/3307/data
+socket=/data/3307/mysql.sock
+port=3307
+log-error=/data/3307/mysql.log
+skip-name-resolve
+server-id=7
+log_bin=/data/3307/data/mysql-bin
+binlog_format=row
+
+--------------------------
+vim /data/3308/my.cnf
+
+[mysqld]
+basedir=/application/mysql
+datadir=/data/3308/data
+port=3308
+socket=/data/3308/mysql.sock
+log-error=/data/3308/mysql.log
+skip-name-resolve
+server-id=8
+
+------------------
+vim /data/3309/my.cnf
+
+[mysqld]
+basedir=/application/mysql
+datadir=/data/3309/data
+socket=/data/3309/mysql.sock
+port=3309
+log-error=/data/3309/mysql.log
+skip-name-resolve
+server-id=9
+
+3. 初始化多次数据库
+
+初始化三套数据：
+/application/mysql/scripts/mysql_install_db --user=mysql --basedir=/application/mysql --datadir=/data/3307/data
+
+/application/mysql/scripts/mysql_install_db --user=mysql --basedir=/application/mysql --datadir=/data/3308/data
+
+/application/mysql/scripts/mysql_install_db --user=mysql --basedir=/application/mysql --datadir=/data/3309/data
+
+
+修改权限：
+
+touch /data/330{7..9}/mysql.log
+chown -R mysql.mysql /data/330*
+
+
+启动数据库：
+/application/mysql/bin/mysqld_safe --defaults-file=/data/3307/my.cnf &
+/application/mysql/bin/mysqld_safe --defaults-file=/data/3308/my.cnf &
+/application/mysql/bin/mysqld_safe --defaults-file=/data/3309/my.cnf &
+
+验证：
+netstat -lnp|grep 330
+=================================================================================
+
+2.2 主库创建复制用户
+mysql -S /data/3307/mysql.sock
+grant replication slave on *.* to repl@'10.0.0.%' identified by '123';
+
+2.3 全备主库数据,恢复到从库
+mysqldump -S /data/3307/mysql.sock -A -R --triggers --master-data=2 --single-transaction >/tmp/full.sql
+
+vim /tmp/full.sql 
+-- CHANGE MASTER TO MASTER_LOG_FILE='mysql-bin.000001', MASTER_LOG_POS=325;
+
+mysql -S /data/3308/mysql.sock 
+set sql_log_bin=0;
+source /tmp/full.sql
+
+2.4 开启主从复制
+mysql -S /data/3308/mysql.sock 
+
+help  change master to 
+
+CHANGE MASTER TO
+  MASTER_HOST='10.0.0.51',
+  MASTER_USER='repl',
+  MASTER_PASSWORD='123',
+  MASTER_PORT=3307,
+  MASTER_LOG_FILE='mysql-bin.000001',
+  MASTER_LOG_POS=325,
+  MASTER_CONNECT_RETRY=10;
+
+  
+CHANGE MASTER TO                                 
+  MASTER_HOST='10.0.0.51',       ---->请填写主库的ip
+  MASTER_USER='repl',     		 ---->请填写主库复制用户
+  MASTER_PASSWORD='123',         ---->请填写主库复制用户密码
+  MASTER_PORT=3307,              ---->请填写主库端口
+  MASTER_LOG_FILE='mysql-bin.000001',      --->填写需要复制二进制日志名
+  MASTER_LOG_POS=325,                      --->填写需要复制的二进制日志复制的起点
+  MASTER_CONNECT_RETRY=10;                 --->重连重试次数
+
+  
+启动复制线程:  
+start slave; 
+
+查看主从状态:
+show slave status \G
+
+Slave_IO_Running: Yes
+Slave_SQL_Running: Yes
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

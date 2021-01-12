@@ -1,0 +1,876 @@
+回顾:
+Mongodb : NoSQL,最接近于RDBMS,文档类存储方式JSON,BSON
+配置文件格式:YAML
+
+--系统日志有关  
+systemLog:
+   destination: file        
+   path: "/mongodb/log/mongodb.log"    --日志位置
+   logAppend: true					   --日志以追加模式记录
+
+--数据存储有关   
+storage:
+  journal:
+    enabled: true
+  dbPath: /mongodb/38021/data
+  directoryPerDB: true
+  #engine: wiredTiger
+  wiredTiger:
+    engineConfig:
+      cacheSizeGB: 1
+      directoryForIndexes: true
+    collectionConfig:
+      blockCompressor: zlib
+    indexConfig:
+      prefixCompression: true
+  
+   
+ -- 进程控制  
+processManagement:
+   fork: true                         --后台守护进程
+   pidFilePath: <string>			  --pid文件的位置，一般不用配置，可以去掉这行，自动生成到data中
+   
+   
+--网络配置有关   
+net:			
+   bindIp: <ip>                       -- 监听地址，如果不配置这行是监听在0.0.0.0
+   port: <port>						  -- 端口号,默认不配置端口号，是27017
+   
+-- 安全验证有关配置      
+security:
+  authorization: enabled              --是否打开用户名密码验证
+  
+  
+  
+------------------以下是复制集与分片集群有关----------------------  
+
+replication:
+ oplogSizeMB: <NUM>
+ replSetName: "<REPSETNAME>"
+ secondaryIndexPrefetch: "all"
+ 
+sharding:
+   clusterRole: <string>
+   archiveMovedChunks: <boolean>  
+   
+shard节点:   
+sharding:
+  clusterRole: shardsvr
+  
+config server节点:
+sharding:
+  clusterRole: configsvr
+
+---for mongos only
+replication:
+   localPingThresholdMs: <int>
+
+sharding:
+   configDB: <string>
+---
+sharding:
+  configDB: configReplSet/10.0.0.51:38018,10.0.0.51:38019,10.0.0.51:38020
+
+  
+用户管理:验证库,建用户时use到的那个库
+1.管理员身份用户
+use admin
+2.普通用户
+use 到需要管理的库中 
+
+连接时,一定要:
+mongo  -uroot -p123 10.0.0.51/admin 
+mongo  -uoldboy -p123 10.0.0.51/oldboy
+默认不加验证库,自动进入test 
+  
+ 
+复制集:
+1.自动监控
+2.自动选主
+3.自动故障转移
+4.自动通知客户端
+5.故障节点修复后自动恢复
+
+特殊从节点
+Arbiter:主要负责投票,arbiter当掉,会出现脑裂
+hidden:隐藏节点,不参与选主,应用看不到他
+delay:延时节点
+
+
+分片集群 
+
+mongos :负责对外提供服务,读取config server信息进行路由数据,balancer的功能
+config server :存储节点信息,分片的策略,chunk情况
+shard节点:以chunk为最小单位,进行存储所有数据
+
+============================================================================================
+
+使用分片集群
+
+##RANGE分片配置及测试
+
+test库下的vast大表进行手工分片
+
+1、激活数据库分片功能
+
+mongo --port 38017 admin
+
+admin>  ( { enablesharding : "数据库名称" } )
+
+eg：
+admin> db.runCommand( { enablesharding : "test" } )
+
+2、指定分片建对集合分片
+eg：范围片键
+--创建索引
+use test
+> db.vast.ensureIndex( { id: 1 } )
+
+--开启分片
+use admin
+> db.runCommand( { shardcollection : "test.vast",key : {id: 1} } )
+
+3、集合分片验证
+admin> use test
+
+test> for(i=1;i<500000;i++){ db.vast.insert({"id":i,"name":"shenzheng","age":70,"date":new Date()}); }
+
+test> db.vast.stats()
+
+4、分片结果测试
+
+shard1:
+mongo --port 38021
+db.vast.count();
+
+
+shard2:
+mongo --port 38024
+db.vast.count();
+
+
+
+----------------------------------------------------
+4、Hash分片例子：
+对oldboy库下的vast大表进行hash
+
+创建哈希索引
+
+（1）对于oldboy开启分片功能
+mongo --port 38017 admin
+use admin
+admin> db.runCommand( { enablesharding : "oldboy" } )
+
+（2）对于oldboy库下的vast表建立hash索引
+use oldboy
+oldboy> db.vast.ensureIndex( { id: "hashed" } )
+（3）开启分片 
+use admin
+admin > sh.shardCollection( "oldboy.vast", { id: "hashed" } )
+
+（4）录入10w行数据测试
+use oldboy
+for(i=1;i<100000;i++){ db.vast.insert({"id":i,"name":"shenzheng","age":70,"date":new Date()}); }
+
+（5）hash分片结果测试
+mongo --port 38021
+use oldboy
+db.vast.count();
+
+mongo --port 38024
+use oldboy
+db.vast.count();
+
+
+---------------------------
+
+5、判断是否Shard集群
+admin> db.runCommand({ isdbgrid : 1})
+
+6、列出所有分片信息
+admin> db.runCommand({ listshards : 1})
+
+7、列出开启分片的数据库
+admin> use config
+
+config> db.databases.find( { "partitioned": true } )
+或者：
+config> db.databases.find() //列出所有数据库分片情况
+
+8、查看分片的片键
+config> db.collections.find().pretty()
+{
+	"_id" : "test.vast",
+	"lastmodEpoch" : ObjectId("58a599f19c898bbfb818b63c"),
+	"lastmod" : ISODate("1970-02-19T17:02:47.296Z"),
+	"dropped" : false,
+	"key" : {
+		"id" : 1
+	},
+	"unique" : false
+}
+
+9、查看分片的详细信息
+admin> db.printShardingStatus()
+或
+admin> sh.status()
+
+10、删除分片节点（谨慎）
+（1）确认blance是否在工作
+sh.getBalancerState()
+
+（2）删除shard2节点(谨慎)
+mongos> db.runCommand( { removeShard: "shard2" } )
+
+注意：删除操作一定会立即触发blancer。
+
+11、balancer操作
+
+介绍：
+mongos的一个重要功能，自动巡查所有shard节点上的chunk的情况，自动做chunk迁移。
+什么时候工作？
+1、自动运行，会检测系统不繁忙的时候做迁移
+2、在做节点删除的时候，立即开始迁移工作
+3、balancer只能在预设定的时间窗口内运行
+
+有需要时可以关闭和开启blancer（备份的时候）
+mongos> sh.stopBalancer()
+mongos> sh.startBalancer()
+
+12、自定义 自动平衡进行的时间段
+https://docs.mongodb.com/manual/tutorial/manage-sharded-cluster-balancer/#schedule-the-balancing-window
+// connect to mongos
+
+use config
+sh.setBalancerState( true )
+
+db.settings.update({ _id : "balancer" }, { $set : { activeWindow : { start : "3:00", stop : "5:00" } } }, true )
+
+sh.getBalancerWindow()
+sh.status()
+
+关于集合的balance（了解下）
+
+关闭某个集合的balance
+sh.disableBalancing("students.grades")
+打开某个集合的balance
+sh.enableBalancing("students.grades")
+确定某个集合的balance是开启或者关闭
+db.getSiblingDB("config").collections.findOne({_id : "students.grades"}).noBalance;
+
+
+小结:
+
+集群基本结构
+搭建
+分片策略应用
+balancer管理
+
+----------------
+备份恢复 
+
+1、备份恢复工具介绍：
+（1）**   mongoexport/mongoimport
+（2）***** mongodump/mongorestore
+
+2、备份工具区别在哪里？
+2.1.	mongoexport/mongoimport  导入/导出的是JSON格式或者CSV格式，
+		mongodump/mongorestore导入/导出的是BSON格式。
+		
+2.2.	JSON可读性强但体积较大，BSON则是二进制文件，体积小但对人类几乎没有可读性。
+
+2.3.	在一些mongodb版本之间，BSON格式可能会随版本不同而有所不同，所以不同版本之间用mongodump/mongorestore可能不会成功，
+		具体要看版本之间的兼容性。当无法使用BSON进行跨版本的数据迁移的时候，
+		使用JSON格式即mongoexport/mongoimport是一个可选项。
+		跨版本的mongodump/mongorestore个人并不推荐，实在要做请先检查文档看两个版本是否兼容（大部分时候是的）。
+
+		
+2.4.	JSON虽然具有较好的跨版本通用性，但其只保留了数据部分，不保留索引，账户等其他基础信息。使用时应该注意。
+
+
+mongoexport/mongoimport:json csv 
+1、异构平台迁移  mysql  <---> mongodb
+2、同平台，跨大版本：mongodb 2  ----> mongodb 3
+
+
+
+================================================
+一、导出工具mongoexport
+
+Mongodb中的mongoexport工具可以把一个collection导出成JSON格式或CSV格式的文件。
+可以通过参数指定导出的数据项，也可以根据指定的条件导出数据。
+（1）版本差异较大
+（2）异构平台数据迁移
+
+
+mongoexport具体用法如下所示：
+
+$ mongoexport --help  
+参数说明：
+-h:指明数据库宿主机的IP
+
+-u:指明数据库的用户名
+
+-p:指明数据库的密码
+
+-d:指明数据库的名字
+
+-c:指明collection的名字
+
+-f:指明要导出那些列
+
+-o:指明到要导出的文件名
+
+-q:指明导出数据的过滤条件
+
+--authenticationDatabase admin
+
+
+1.单表备份至json格式
+mongoexport -uroot -proot123 --port 27017 --authenticationDatabase admin -d oldboy -c log -o /mongodb/log.json
+
+
+注：备份文件的名字可以自定义，默认导出了JSON格式的数据。
+
+2. 单表备份至csv格式
+如果我们需要导出CSV格式的数据，则需要使用----type=csv参数：
+
+ mongoexport -uroot -proot123 --port 27017 --authenticationDatabase admin -d oldboy -c log --type=csv -f uid,name,age,date  -o /mongodb/log.csv
+
+二、导入工具mongoimport
+Mongodb中的mongoimport工具可以把一个特定格式文件中的内容导入到指定的collection中。该工具可以导入JSON格式数据，也可以导入CSV格式数据。具体使用如下所示：
+$ mongoimport --help
+参数说明：
+-h:指明数据库宿主机的IP
+
+-u:指明数据库的用户名
+
+-p:指明数据库的密码
+
+-d:指明数据库的名字
+
+-c:指明collection的名字
+
+-f:指明要导入那些列
+
+-j, --numInsertionWorkers=<number>  number of insert operations to run concurrently                                                  (defaults to 1)
+//并行
+
+
+数据恢复:
+1.恢复json格式表数据到log1
+
+mongoimport -uroot -proot123 --port 27017 --authenticationDatabase admin -d oldboy -c log1 /mongodb/log.json
+
+
+2.恢复csv格式的文件到log2
+上面演示的是导入JSON格式的文件中的内容，如果要导入CSV格式文件中的内容，则需要通过--type参数指定导入格式，具体如下所示：
+错误的恢复
+
+注意：
+（1）csv格式的文件头行，有列名字
+mongoimport   -uroot -proot123 --port 27017 --authenticationDatabase admin   -d oldboy -c log2 --type=csv --headerline --file  /mongodb/log.csv
+
+（2）csv格式的文件头行，没有列名字
+mongoimport   -uroot -proot123 --port 27017 --authenticationDatabase admin   -d oldboy -c log3 --type=csv -f id,name,age,date --file  /mongodb/log1.csv
+
+
+--headerline:指明第一行是列名，不需要导入。
+
+
+补：导入CSV文件P_T_HISTXN_20160616.csv（csv文件中没有列明，fields指定列明）
+$ tail -5 P_T_HISTXN_20160616.csv 
+
+"2015-07-01 00:00:00","154221","11000255653101","2015-07-01 00:00:00","0523753","EB0523753","PAZF00","07010032044026","0305","EB052",,"0305","平安银行北京中关村支行","0305","11000255653101","北京万佳立信科技发展有限公司",,"招商银行股份有限公司北京上地支行","308100005416","6226090110740251","徐雨阳","200000","1","0","RMB",,"D","PAZ15","3090","借款","554345.5","0","WEB","BPAY-UPP",,,"B","ZFA","0000","00000002","Y",,,"2015-07-01 00:00:00","554345.5","554345.5","Y","1",,,,,"WEB","网银","EB","0","Y",,,,"0","0","1","11",,,,"13","11000255653101","N"
+"2015-07-01 00:00:00","092012","11000256450102","2015-07-01 00:00:00","0159509","EB0159509","PAZF00","07010031074886","9998","EB015",,,"中国农业银行常州分行营业部","103304061015","6228480419360850277","徐卫","0338","平安银行南京河西支行","9998","11000256450102","江苏宁谊文化实业有限公司","35000","0","0","RMB",,"C","PAZ14","3090","书款","28389004.82","0","Z14",,,,"B","ZFA","0000","00000001","Y",,,"2015-07-01 00:00:00","28389004.82","28389004.82","N","1",,,,,"Z14",,"EB","0",,,,,"0","0","1","11",,,,"17","11000256450102","N"
+"2015-07-01 00:00:00","101255","11000256450102","2015-07-01 00:00:00","0224494","EB0224494","PABOCP","07011232352900","0338","EB022",,"0338","平安银行南京河西支行","0338","11000256450102","江苏宁谊文化实业有限公司",,,"000000000000",,"南京银城物业服务有限公司第一分公司","31053","0","0","RMB",,"D","PAZ02","3090",,"28357951.82","0","106542        B08",,,,"B","ZFA","0000","00000002","Y",,,"2015-07-01 00:00:00","28357951.82","28357951.82","Y","1",,,,,"B08","影像票交提回","EB","0",,,"2001","30106542","0","0","0","11",,,,"17","11000256450102","N"
+"2015-07-01 00:00:00","102924","11000256450102","2015-07-01 00:00:00","0245050","EB0245050","PAZF00","07010031223297","9998","EB024",,,"中国建设银行湖北省分行","105521000012","42001258139059005570","武汉市汉阳区万科育才幼儿园","0338","平安银行南京河西支行","9998","11000256450102","江苏宁谊文化实业有限公司","14040","0","0","RMB",,"C","PAZ12","3090","货款","28371991.82","0","Z12","BPAY-UPP",,,"B","ZFA","0000","00000003","Y",,,"2015-07-01 00:00:00","28371991.82","28371991.82","N","1",,,,,"Z12",,"EB","0","Y",,,,"0","0","1","11",,,,"17","11000256450102","N"
+"2015-07-01 00:00:00","103918","11000256450102","2015-07-01 00:00:00","0256580","EB0256580","PAZF00","07010031248738","9998","EB025",,,"中国农业银行常州分行营业部","103304061015","6228480419360850277"
+
+$ mongoimport  -uroot -pgrjin --authenticationDatabase admin --db=test --collection=tx --numInsertionWorkers=4 --type=csv --fields=TDT,TTM,ACC,ADT,TRC,F6,F7,F8,F9,F10,F11,F12,F13,F14,F15,F16,F17,F18,F19,F20,F21,AMT,F23,F24,CCY,F26,F27,F28,F29,F30,F31,F32,F33,F34,F35,F36,F37,F38,F39,SEQ,F41,F42,F43,F44,F45,F46,F47,F48,F49,F50,F51,F52,F53,F54,F55,F56,F57,F58,F59,F60,F61,F62,F63,F64,F65,F66,F67,F68,F69,F70 --file=P_T_HISTXN_20160616.csv
+2016-06-16T00:19:43.756+0800	connected to: 192.168.1.24:27017
+2016-06-16T00:19:46.725+0800	[##############..........] test.tx	15.0 MB/24.0 MB (62.5%)
+2016-06-16T00:19:49.728+0800	[######################..] test.tx	22.4 MB/24.0 MB (93.2%)
+2016-06-16T00:19:50.305+0800	[########################] test.tx	24.0 MB/24.0 MB (100.0%)
+2016-06-16T00:19:50.305+0800	imported 44727 documents
+
+test> db.tx.findOne()
+{
+	"_id" : ObjectId("576180231e9233e8fdee74c5"),
+	"TDT" : "2015-07-01 00:00:00",
+	"TTM" : 172553,
+	"ACC" : NumberLong("12100050740"),
+	"ADT" : "2015-07-01 00:00:00",
+	"TRC" : 634024,
+	"F6" : "EB0634024",
+	"F7" : "WB0755",
+	"F8" : NumberLong("42150701183758"),
+	"F9" : 852,
+	"F10" : "EB063",
+	"F11" : "",
+	"F12" : "",
+	"F13" : "平安银行深圳西丽支行",
+	"F14" : 852,
+	"F15" : NumberLong("11002902626101"),
+	"F16" : "深圳市新星轻合金材料股份有限公司",
+	"F17" : 2101,
+	"F18" : "平安银行深圳分行营业部",
+	"F19" : 852,
+	"F20" : NumberLong("12100050740"),
+	"F21" : "深圳市建筑工程股份有限公司",
+	"AMT" : 33000,
+	"F23" : 0,
+	"F24" : 0,
+	"CCY" : "RMB",
+	"F26" : "",
+	"F27" : "C",
+	"F28" : "WBNFE",
+	"F29" : 1380,
+	"F30" : "工程款",
+	"F31" : 6397008.2,
+	"F32" : 0,
+	"F33" : "WEB",
+	"F34" : "ZH",
+	"F35" : "",
+	"F36" : "",
+	"F37" : "B",
+	"F38" : "CCT",
+	"F39" : 0,
+	"SEQ" : 4,
+	"F41" : "Y",
+	"F42" : "",
+	"F43" : "",
+	"F44" : "2015-07-01 00:00:00",
+	"F45" : 6397008.2,
+	"F46" : 6397008.2,
+	"F47" : "Y",
+	"F48" : 1,
+	"F49" : "",
+	"F50" : "",
+	"F51" : "",
+	"F52" : "",
+	"F53" : "WEB",
+	"F54" : "网银",
+	"F55" : "EB",
+	"F56" : 0,
+	"F57" : "",
+	"F58" : "",
+	"F59" : "",
+	"F60" : "",
+	"F61" : 0,
+	"F62" : 0,
+	"F63" : 1,
+	"F64" : 11,
+	"F65" : "",
+	"F66" : "",
+	"F67" : "",
+	"F68" : 11,
+	"F69" : NumberLong("12100050740"),
+	"F70" : "N"
+}
+
+-----异构平台迁移案例
+mysql   -----> mongodb  
+world数据库下city表进行导出，导入到mongodb
+
+（1）mysql开启安全路径
+
+vim /etc/my.cnf   --->添加以下配置
+secure-file-priv=/tmp
+
+--重启数据库生效
+/etc/init.d/mysqld restart
+
+（2）导出mysql的city表数据
+source /root/world.sql
+
+select * from world.city into outfile '/tmp/city1.csv' fields terminated by ',';
+
+（3）处理备份文件
+desc world.city
+  ID          | int(11)  | NO   | PRI | NULL    | auto_increment |
+| Name        | char(35) | NO   |     |         |                |
+| CountryCode | char(3)  | NO   | MUL |         |                |
+| District    | char(20) | NO   |     |         |                |
+| Population
+
+vim /tmp/city.csv   ----> 添加第一行列名信息
+
+ID,Name,CountryCode,District,Population
+
+(4)在mongodb中导入备份
+mongoimport -uroot -proot123 --port 27017 --authenticationDatabase admin -d world  -c city --type=csv -f ID,Name,CountryCode,District,Population --file  /tmp/city1.csv
+
+use world
+db.city.find({CountryCode:"CHN"});
+
+-------------
+world共100张表，全部迁移到mongodb
+
+select * from world.city into outfile '/tmp/world_city.csv' fields terminated by ',';
+
+select concat("select * from ",table_schema,".",table_name ," into outfile '/tmp/",table_schema,"_",table_name,".csv' fields terminated by ',';")
+from information_schema.tables where table_schema ='world';
+
+导入：
+    提示，使用infomation_schema.columns + information_schema.tables
+
+------------
+
+mysql导出csv：
+select * from test_info   
+into outfile '/tmp/test.csv'   
+fields terminated by ','　　　 ------字段间以,号分隔
+optionally enclosed by '"'　　 ------字段用"号括起
+escaped by '"'   　　　　　　  ------字段中使用的转义符为"
+lines terminated by '\r\n';　　------行以\r\n结束
+
+
+mysql导入csv：
+load data infile '/tmp/test.csv'   
+
+into table test_info    
+
+fields terminated by ','  
+
+optionally enclosed by '"' 
+
+escaped by '"'   
+
+lines terminated by '\r\n'; 
+----------------------------------
+
+3、mongodump和mongorestore介绍
+mongodump能够在Mongodb运行时进行备份，它的工作原理是对运行的Mongodb做查询，然后将所有查到的文档写入磁盘。
+但是存在的问题时使用mongodump产生的备份不一定是数据库的实时快照，如果我们在备份时对数据库进行了写入操作，
+则备份出来的文件可能不完全和Mongodb实时数据相等。另外在备份时可能会对其它客户端性能产生不利的影响。
+
+
+4、mongodump用法如下：
+$ mongodump --help
+参数说明：
+-h:指明数据库宿主机的IP
+
+-u:指明数据库的用户名
+
+-p:指明数据库的密码
+
+-d:指明数据库的名字
+
+-c:指明collection的名字
+
+-o:指明到要导出的文件名
+
+-q:指明导出数据的过滤条件
+
+-j, --numParallelCollections=  number of collections to dump in parallel (4 by default)
+
+--oplog  备份的同时备份oplog
+
+
+5、mongodump和mongorestore基本使用
+5.0 全库备份
+
+mkdir /mongodb/backup
+mongodump  -uroot -proot123 --port 27017 --authenticationDatabase admin -o /mongodb/backup
+
+5.1--备份world库
+$ mongodump   -uroot -proot123 --port 27017 --authenticationDatabase admin -d world -o /mongodb/backup/
+
+5.2--备份oldboy库下的log集合
+$ mongodump   -uroot -proot123 --port 27017 --authenticationDatabase admin -d oldboy -c log -o /mongodb/backup/
+
+5.3 --压缩备份
+$ mongodump   -uroot -proot123 --port 27017 --authenticationDatabase admin -d oldguo -o /mongodb/backup/ --gzip
+
+$ mongodump   -uroot -proot123 --port 27017 --authenticationDatabase admin -d app -c vast -o /mongodb/backup/ --gzip
+
+
+5.4--恢复world库
+$ mongorestore   -uroot -proot123 --port 27017 --authenticationDatabase admin -d world1  /mongodb/backup/world
+
+5.5--恢复oldguo库下的t1集合
+mongorestore   -uroot -proot123 --port 27017 --authenticationDatabase admin -d oldboy -c t1 --gzip /mongodb/backup/oldguo/t1.bson.gz 
+
+
+5.6 --drop表示恢复的时候把之前的集合drop掉
+$ mongorestore  -uroot -proot123 --port 27017 --authenticationDatabase admin -d oldboy --drop /mongodb/backup/oldboy
+
+==========================================================
+*****6、mongodump和mongorestore高级企业应用（--oplog）
+
+注意：这是replica set或者master/slave模式专用
+
+--oplog
+ use oplog for taking a point-in-time snapshot
+ 
+6.1 oplog介绍
+在replica set中oplog是一个定容集合（capped collection），它的默认大小是磁盘空间的5%（可以通过--oplogSizeMB参数修改），
+位于local库的db.oplog.rs，有兴趣可以看看里面到底有些什么内容。
+其中记录的是整个mongod实例一段时间内数据库的所有变更（插入/更新/删除）操作。
+当空间用完时新记录自动覆盖最老的记录。
+其覆盖范围被称作oplog时间窗口。需要注意的是，因为oplog是一个定容集合，
+所以时间窗口能覆盖的范围会因为你单位时间内的更新次数不同而变化。
+想要查看当前的oplog时间窗口预计值，可以使用以下命令：
+
+mongos -f /data/38017/conf/mongos.conf --shutdown
+mongod -f /data/38018/conf/mongod.conf --shutdown
+
+pkill mongod
+pkill mongos
+
+ mongod -f /mongodb/28017/conf/mongod.conf 
+ mongod -f /mongodb/28018/conf/mongod.conf 
+ mongod -f /mongodb/28019/conf/mongod.conf 
+ mongod -f /mongodb/28020/conf/mongod.conf 
+------------
+test:PRIMARY> rs.printReplicationInfo()
+configured oplog size:   1561.5615234375MB <--集合大小
+log length start to end: 423849secs (117.74hrs) <--预计窗口覆盖时间
+oplog first event time:  Wed Sep 09 2015 17:39:50 GMT+0800 (CST)
+oplog last event time:   Mon Sep 14 2015 15:23:59 GMT+0800 (CST)
+now:                     Mon Sep 14 2015 16:37:30 GMT+0800 (CST)
+
+
+------------
+
+6.2、oplog企业级应用
+（1）实现热备，在备份时使用--oplog选项
+注：为了演示效果我们在备份过程，模拟数据插入
+（2）准备测试数据
+use oldboy
+
+for(var i = 1 i < 2001; i++) {
+    db.foo.insert({a: i});
+}
+
+my_repl:PRIMARY> db.oplog.rs.find({"op":"d"}).pretty()
+
+-----------------------------------------------------
+
+oplog 配合mongodump实现热备
+
+mongodump --port 38022 --oplog -o /mongodb/backup
+
+
+作用介绍：--oplog 会记录备份过程中的数据变化。会以oplog.bson保存下来
+
+恢复
+
+mongorestore  --port 38022 --oplogReplay /mongodb/backup
+
+
+!!!!!!!!!!oplog高级应用  ==========binlog应用
+
+背景：每天0点全备，oplog恢复窗口为48小时
+某天，上午10点world.city 业务表被误删除。
+
+恢复思路：
+	0、停应用
+	2、找测试库
+	3、恢复昨天晚上全备
+	4、截取全备之后到world.city误删除时间点的oplog，并恢复到测试库
+	5、将误删除表导出，恢复到生产库
+
+--------------
+恢复步骤：
+模拟故障环境：
+
+
+1、全备数据库
+
+模拟原始数据
+
+mongo --port 28017
+use wo
+for(var i = 1 ;i < 2001; i++) {
+    db.ci.insert({a: i});
+}
+
+全备:
+
+rm -rf /mongodb/backup/*
+mongodump --port 28017 --oplog -o /mongodb/backup
+
+--oplog功能:在备份同时,将备份过程中产生的日志进行备份
+
+文件必须存放在/mongodb/backup下,自动命令为oplog.bson
+
+再次模拟数据
+
+db.ci1.insert({id:1})
+db.ci2.insert({id:2})
+
+
+2、上午10点：删除wo库下的ci表
+10:00时刻,误删除
+db.ci.drop()
+show tables;
+
+3、备份现有的oplog.rs表
+mongodump --port 28017 -d local -c oplog.rs  -o /mongodb/backup
+
+4、截取oplog并恢复到drop之前的位置
+更合理的方法：登陆到原数据库
+[mongod@db03 local]$ mongo --port 28017
+my_repl:PRIMARY> use local
+db.oplog.rs.find({op:"c"}).pretty();
+
+{
+	"ts" : Timestamp(1540453259, 1),
+	"t" : NumberLong(3),
+	"h" : NumberLong("9057335618973511572"),
+	"v" : 2,
+	"op" : "c",
+	"ns" : "world.$cmd",
+	"o" : {
+		"drop" : "city"
+	}
+}
+
+获取到oplog误删除时间点位置:
+"ts" : Timestamp(1543907814, 1)
+	
+ 5、恢复备份+应用oplog
+ 
+[mongod@db03 backup]$ cd /mongodb/backup/local/
+[mongod@db03 local]$ ls
+oplog.rs.bson  oplog.rs.metadata.json
+[mongod@db03 local]$ cp oplog.rs.bson ../oplog.bson 
+rm -rf /mongodb/backup/local/
+ 
+mongorestore --port 28017  --oplogReplay --oplogLimit "1543907814:1"  --drop  /mongodb/backup/
+
+-----------------------------------------
+**分片集群的备份思路（了解）
+
+1、你要备份什么？
+config server
+shard 节点
+
+单独进行备份
+2、备份有什么困难和问题
+（1）chunk迁移的问题
+	人为控制在备份的时候，避开迁移的时间窗口
+（2）shard节点之间的数据不在同一时间点。
+	选业务量较少的时候		
+	
+----------------------------------------
+db.serverStatus()
+
+"locks" : {
+        "." : {   //全局锁信息
+                "timeLockedMicros" : {               //锁定时间（毫秒）
+                        "R" :NumberLong(37751),
+                        "W" :NumberLong(72087)
+                },
+                "timeAcquiringMicros" : { //获取时间（毫秒）
+                        "R" :NumberLong(39024),
+                        "W" :NumberLong(4492)
+                }
+        },
+        "admin" : {         //admin数据库中锁信息
+                "timeLockedMicros" : {
+ 
+                },
+                "timeAcquiringMicros" : {
+ 
+                }
+        },
+        "local" : {  //local数据库锁信息
+                "timeLockedMicros" : {
+                        "r" : NumberLong(15646),
+                        "w" : NumberLong(0)
+                },
+                "timeAcquiringMicros" : {
+                        "r" : NumberLong(92),
+                        "w" : NumberLong(0)
+                }
+        }
+},
+
+
+============
+
+------------------
+
+mongostat --port 28017 
+
+insert：每秒插入量
+query：每秒查询量
+update：每秒更新量
+delete：每秒删除量
+conn：当前连接数
+qr|qw：客户端查询排队长度（读|写）
+最好为0，如果有堆积，数据库处理慢。
+ar|aw：活跃客户端数量（读|写）
+time：当前时间
+
+
+mongotop --port 28017
+
+ns：数据库命名空间，后者结合了数据库名称和集合。
+total：mongod在这个命令空间上花费的总时间。
+read：在这个命令空间上mongod执行读操作花费的时间。
+write：在这个命名空间上mongod进行写操作花费的时间。
+
+
+查看当前进程工作状态:
+
+db.currentOp()
+db.killOp(608605)
+
+应用的场景: 在mongodb hang住时,查询一下是谁阻塞的.kill掉他
+
+
+explain应用:
+"stage" : "COLLSCAN"
+"stage" : "IXSCAN"
+
+
+
+ db.city1.find().explain()
+{
+	"queryPlanner" : {
+		"plannerVersion" : 1,
+		"namespace" : "world.city1",
+		"indexFilterSet" : false,
+		"parsedQuery" : {
+			"$and" : [ ]
+		},
+		"winningPlan" : {
+			"stage" : "COLLSCAN",
+			"filter" : {
+				"$and" : [ ]
+			},
+			"direction" : "forward"
+		},
+		"rejectedPlans" : [ ]
+	},
+	"serverInfo" : {
+		"host" : "db01",
+		"port" : 28017,
+		"version" : "3.2.16",
+		"gitVersion" : "056bf45128114e44c5358c7a8776fb582363e094"
+	},
+	"ok" : 1
+}
+
+
+修改chunk大小:
+
+To modify the chunk size, use the following procedure:
+Connect to any mongos in the cluster using the mongo shell.
+Issue the following command to switch to the Config Database:
+use config
+Issue the following save() operation to store the global chunk size configuration value:
+db.settings.save( { _id:"chunksize", value: <sizeInMB> } )
+
+
+
+
+
+
+
+
+

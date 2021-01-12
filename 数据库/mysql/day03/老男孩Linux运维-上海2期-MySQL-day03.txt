@@ -1,0 +1,606 @@
+
+====================================老男孩Linux运维-上海2期-MySQL-day03===================================
+
+表定义:
+
+创建:
+create table 
+
+Syntax:
+CREATE  TABLE    tbl_name (create_definition(创建定义),...)
+create_definition(创建定义):
+    col_name column_definition(列定义)
+column_definition:
+    data_type
+	
+	[NOT NULL | NULL] [DEFAULT default_value]
+    [AUTO_INCREMENT] [UNIQUE [KEY] | [PRIMARY] KEY]
+    [COMMENT 'string']
+	
+	
+data_type(数据类型):
+数字:
+ TINYINT         -128-127       0-255
+ INT             -2^31-2^31-1   0-2^32-1   10位数字
+  
+时间:  
+  TIMESTAMP     
+  DATETIME   
+  
+  
+字符串:  
+CHAR(20)        定长,不管用多少都立即分配20个字符长度,会有磁盘空间浪费
+VARCHAR(20)     变长,用多少分多少,在存数据时,会判断字符长度
+ENUM(value1,value2,value3,...)
+
+
+CREATE TABLE stu(
+id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+NAME VARCHAR(20) NOT NULL,
+age TINYINT,
+gender ENUM('m','f','n') NOT NULL DEFAULT 'm'
+);
+
+
+查看表的信息;
+desc stu;
+show create table stu;
+
+=========================================
+
+按需求建立数据库和表
+
+student(sno,sname,sage,ssex) 学生表 
+sno：  学号;
+sname：学生姓名;
+sage： 学生年龄;
+ssex： 学生性别;
+
+course(cno,cname,tno) 课程表 
+cno：  课程编号；
+cname：课程名字；
+tno：  教师编号 ；
+
+sc(sno,cno,score) 成绩表 
+sno：  学号；
+cno：  课程编号；
+score：成绩 ；
+
+teacher(tno,tname) 	教师表 
+tno：  教师编号； 
+tname：教师名字；
+
+
+=======================================
+上集回顾:
+
+1. MySQL基础管理
+(1)用户和权限
+
+grant 权限  on 对象  to 用户   密码
+用户: username@'白名单'
+对象:库,表
+权限:很多
+
+(2) 思考的问题
+	开发人员找你要root
+	(1)root用户的权限身份能做什么
+	(2)权限过大带来的隐患,责任的维度去说
+	(3)坚持要,流程
+
+	申请生产普通应用用户
+
+(3) 客户端工具使用
+mysql   
+-h   数据库服务器ip 
+-P   端口
+-p   密码
+-u   用户
+-S   指定Socket
+-e   免交互执行mysql命令
+<    导入sql脚本
+
+mysqladmin 
+password 
+shutdown
+
+(4) mysql启动顺序
+
+mysql.server  -----> mysqld_safe  ---->  mysqld
+
+(5) 初始化配置
+预编译(cmake)
+配置文件(my.cnf)
+
+/etc/my.cnf     /etc/my.cnf.d    /etc/mysql/my.cnf    /安装路径/my.cnf     ~/.my.cnf
+mysqld_safe  --defaults-file=/tmp/a.cnf  &
+
+[mysqld]
+basedir
+datadir
+socket
+port
+log_error
+skip_name_resolve
+server_id
+[mysql]
+socket=
+
+(6)多实例
+多个配置文件(路径配置,端口,socket,日志)
+多套目录
+多套数据
+
+
+
+数据查询语言DQL,数据操纵语言DML, 数据定义语言DDL,数据控制语言DCL.
+=======================================================
+(7) SQL
+DDL:数据定义语言
+库:
+create database 
+drop  database
+alter database
+show databases
+show create database 
+
+表
+create table  表名  (列1 列定义,列2 列定义);
+
+列定义:
+1.数据类型 
+数字类型:
+tinyint 
+int
+
+字符串类型:
+char(20)
+varchar(20)
+enum('M','F')
+
+时间类型
+datetime
+timestamp
+
+2. 列的其他属性
+约束
+not null    : 非空
+
+primary key : 非空且唯一
+unique key  : 唯一
+区别: 
+primary   多了 not null,一张表只能有一个主键
+** 会根据主键生成聚集索引组织表,存数据时,会按照主键的顺序,组织存储行数据.按照主键条件查询,是顺序IO,速度很快.
+
+
+unsigned    : 对于数字列的约束,非负数 
+
+特殊定义
+auto_increment:(配合主键使用)   自增长
+default :(配合 not null)
+comment : 注释
+
+==========================================
+按需求建立数据库和表
+
+==================================
+student(sno,sname,sage,ssex) 学生表 
+sno：  学号;
+sname：学生姓名;
+sage： 学生年龄;
+ssex： 学生性别;
+
+CREATE DATABASE school CHARSET utf8;
+USE school
+
+CREATE TABLE student(
+sno INT NOT NULL PRIMARY KEY AUTO_INCREMENT COMMENT '学号',
+sname VARCHAR(20) NOT NULL COMMENT '姓名',
+sage  TINYINT UNSIGNED  NOT NULL COMMENT '年龄',
+ssex  ENUM('f','m') NOT NULL DEFAULT 'm' COMMENT '性别'
+)ENGINE=INNODB CHARSET=utf8;
+SHOW TABLES;
+
+=================================
+course(cno,cname,tno) 课程表 
+cno：  课程编号；
+cname：课程名字；
+tno：  教师编号 ；
+=================================
+
+CREATE TABLE course(
+cno INT NOT NULL PRIMARY KEY COMMENT '课程编号',
+cname VARCHAR(20) NOT NULL COMMENT '课程名字',
+tno INT NOT NULL COMMENT '教师编号'
+)ENGINE=INNODB CHARSET utf8;
+
+============================
+sc(sno,cno,score) 成绩表 
+sno：  学号；
+cno：  课程编号；
+score：成绩 ；
+============================
+CREATE TABLE sc (
+sno INT NOT NULL COMMENT '学号',
+cno INT NOT NULL COMMENT '课程编号',
+score INT  NOT NULL DEFAULT 0 COMMENT '成绩'
+)ENGINE=INNODB CHARSET=utf8;
+
+===================
+teacher(tno,tname) 	教师表 
+tno：  教师编号； 
+tname：教师名字；
+====================
+
+CREATE TABLE teacher(
+tno INT NOT NULL PRIMARY KEY COMMENT '教师编号',
+tname VARCHAR(20) NOT NULL COMMENT '教师名字'
+)ENGINE=INNODB CHARSET utf8;
+
+======================================
+
+查看表信息:
+DESC student;
+SHOW CREATE TABLE student;
+
+
+创建表结构一模一样的表:
+CREATE TABLE stu LIKE student;
+DESC stu
+create table oldboy.tab  like school.stu; 
+
+创建表结构相同,并且数据相同的表
+
+**** CREATE TABLE t1 SELECT * FROM stu;
+
+alter table
+-- 修改表定义
+-- 1.在stu表中加入stel列  char(11) not null unique comment '手机号'
+DESC stu;
+ALTER TABLE stu ADD stel CHAR(11) NOT NULL UNIQUE  COMMENT '手机号';
+
+-- 2.在stu表中sno后加入sid列 char(18) not null unique comment '身份证'
+ALTER TABLE stu ADD sid CHAR(18) NOT NULL UNIQUE COMMENT '身份证' AFTER sno;
+DESC stu;
+
+-- 3.在sno之前(第一列位置),添加suser varchar(10) not null unique comment '用户名'
+ALTER TABLE stu ADD suser VARCHAR(10) NOT NULL UNIQUE COMMENT '用户名' FIRST;
+DESC stu;
+-- 4、 删除列及列定义 
+ALTER  TABLE stu DROP suser;
+DESC stu;
+
+-- 5、修改列及列定义
+ALTER TABLE stu ADD stime VARCHAR(30); 
+DESC stu;
+
+-- 修改stime的数据类型为 datetime
+ALTER TABLE stu MODIFY stime DATETIME;
+
+-- 修改stime列为st ,数据类型修改为varchar(30)
+ALTER TABLE stu CHANGE stime st VARCHAR(30);
+
+
+===============================
+
+DML语句:
+操作的是表中的数据行.
+
+INSERT
+INSERT INTO  表名(列1,列2,列3)  VALUES (值,值,值),(值,值,值)
+INSERT INTO 表名   VALUES()
+
+========================================
+insert练习:
+
+DESC student;
+INSERT INTO student(sname,sage,ssex) 
+VALUES 
+('zhang3',18,'m'),
+('li4',19,'m'),
+('xiaoh',18,'f');
+
+DESC teacher;
+INSERT INTO teacher(tno,tname) VALUES
+(101,'oldboy'),
+(102,'hesw'),
+(103,'oldguo');
+
+DESC course;
+INSERT INTO course(cno,cname,tno)
+VALUES
+(1001,'linux',101),
+(1002,'python',102),
+(1003,'mysql',103);
+
+SELECT * FROM course;
+
+DESC sc;
+INSERT INTO sc(sno,cno,score)
+VALUES
+(1,1001,80),
+(1,1002,59),
+(2,1002,90),
+(2,1003,100),
+(3,1001,99),
+(3,1003,40);
+
+SELECT * FROM sc;
+===============================	
+update 语句
+
+select * from  student ;
+UPDATE student SET sname='lisi' WHERE sno=2;
+
+-- 1号学员的1001课程的分数改成89分
+SELECT * FROM  sc
+UPDATE sc SET score=89 WHERE sno=1 AND cno=1001;
+
+===================
+delete 语句:
+
+CREATE TABLE sc_bak  SELECT * FROM sc;
+SELECT * FROM sc_bak;
+
+删除1号学员所有的成绩信息:
+DELETE FROM sc_bak WHERE sno=1;
+
+伪删除:
+使用状态列,实现伪删除.
+1.添加一个状态列state ENUM(1,0) NOT NULL DEFAULT 1
+ALTER TABLE sc ADD state ENUM('1','0') NOT NULL DEFAULT '1';
+SELECT * FROM sc;
+2.使用update替代delete
+UPDATE sc SET state='0' WHERE sno=1;
+
+3.修改应用语句
+SELECT * FROM sc  WHERE state='1';
+
+========================================
+DQL:
+
+1.最基本语法:
+SELECT 表.列1,表.列2 
+FROM 表 
+
+USE world
+SHOW TABLES;
+
+world(世界)
+---city(城市)
+---country(国家)
+---countrylanguage(国家语言)
+
+city(城市)
+DESC  city;
+-- id(编号)
+-- name(城市名字)
+-- countrycode(国家代号,例如:CHN,USA,JPN)
+-- district(省,洲)
+-- population(人口数量)
+
+(1) 查询表中所有数据    
+SELECT * FROM city;
+
+(2) 查询id和name列的值
+SELECT  id,NAME FROM city;         
+
+=================
+2. WHERE 条件过滤
+
+(1)等值查询:查询中国的 城市名
+ SELECT   NAME FROM city WHERE countrycode='chn';
+(2)不等值查询:世界上超过500w人口的城市信息
+SELECT * FROM city WHERE population>5000000;
+
+(3)模糊查询
+查询国家代号为CH开头的城市
+ SELECT   countrycode,NAME FROM city WHERE countrycode LIKE 'ch%';
+ 请注意,不要在like语句中出现 '%hn' '%h%',和索引的使用有关
+
+(4)与and,or的结合
+ AND:
+ SELECT * FROM city WHERE population>5000000 AND population<6000000;
+ OR:
+ SELECT *  FROM city WHERE countrycode='CHN' OR countrycode='USA';
+ 
+(5)与in,between的结合
+ SELECT * FROM city WHERE countrycode IN ('CHN','USA');
+ SELECT * FROM city WHERE population BETWEEN 5000000 AND 6000000;
+
+3. GROUP BY  +  聚合函数 (COUNT(),MAX(),MIN(),AVG(),SUM())     (限定条件：形容词的前面)
+ (1) COUNT(),统计数量
+  统计city表中城市的个数.
+  SELECT COUNT(*) FROM city;
+ (2)统计一下各个国家的城市个数    
+ SELECT countrycode,  COUNT(NAME)   FROM city   GROUP BY countrycode
+ SELECT countrycode,  COUNT(NAME)   FROM city   GROUP BY countrycode 
+ 
+ (3)统计一下中国 , 各省的 人口 总和(SUM()).
+ SELECT district, SUM(population) 
+ FROM city  
+ WHERE countrycode='chn' 
+ GROUP BY district;
+ 
+ (4)统计 每个国家的人口总数
+ SELECT countrycode,SUM(population) 
+ FROM city
+ GROUP BY countrycode;
+ 
+4. ORDER BY   
+ASC:从小到大
+DESC:从大到小
+
+(1) 查询中国所有的城市信息,并以人口数量从大到小排序输出
+
+SELECT * FROM city 
+WHERE countrycode='CHN' 
+ORDER BY Population DESC ;
+
+(2)统计一下各个国家的城市个数    
+SELECT countrycode,COUNT(NAME) AS c_name
+FROM city 
+GROUP BY countrycode
+ORDER BY c_name DESC;
+
+
+5. limit 分页取值
+
+LIMIT: 一般是放在order by语句之后的,做行输出限制
+
+语法:
+跳过1行,显示后续10行
+LIMIT 1,10
+或者
+LIMIT 10 OFFSET 1
+
+
+(2)统计一下各个国家的城市个数  ,只显示前10  
+SELECT countrycode,COUNT(NAME) AS c_name
+FROM city 
+GROUP BY countrycode
+ORDER BY c_name DESC
+LIMIT 20 ;
+
+2-11 
+SELECT countrycode,COUNT(NAME) AS c_name
+FROM city 
+GROUP BY countrycode
+ORDER BY c_name DESC
+LIMIT 1,10;
+
+=======================
+6. 多表连接查询
+
+作用: 你要获取的数据,无法从单个表中获取到的时候,需要结合多表进行查询
+
+1.传统连接
+
+(1) 查询世界上人口数量小于100人的城市(城市名,国家代号,人口数)
+
+select countrycode,name,population 
+from city 
+where population <100;
+
+where 
+
+标准的表连接方式    JOIN ON 
+SELECT 列
+FROM A  
+JOIN b
+ON a.xx=b.xxx
+WHERE xxxx
+
+
+SELECT 	ci.name	,co.name,ci.population
+FROM city AS ci
+JOIN country co
+ON  ci.countrycode=co.code
+WHERE ci.population<100
+
+
+(2) 世界上人口>1000w的城市,所在国家名及国土面面积
+SELECT ci.countrycode,co.surfacearae,ci.population
+FROM city AS ci
+JOIN country co
+ON ci.countrycode=co.code
+WHERE ci.population>10000000;
+
+(3) 统计亚洲各国,各个省人口总数,只显示人口总数前十的信息:
+
+SELECT co.continent ,co.name,ci.district,SUM(ci.population) AS sp FROM city AS ci 
+JOIN country co
+ON ci.countrycode=co.code
+WHERE co.continent='Asia'
+GROUP BY ci.district
+ORDER BY sp DESC 
+LIMIT 10;
+
+DESC 
+
+(4) 
+USE school
+DESC student;
+DESC sc;
+
+SELECT * FROM student;
+SELECT * FROM sc;
+
+(5)统计zhang3,学习了几门课:
+
+SELECT  s.sname,COUNT(sc.cno)  
+FROM student AS s 
+JOIN sc 
+ON s.sno=sc.sno   
+WHERE s.sname='zhang3' 
+GROUP BY s.sname;
+
+(6)查询zhang3,学习的课程名称有哪些?
+
+SELECT s.sname,c.cname FROM sc
+JOIN student AS s
+ON sc.sno=s.sno
+JOIN course AS c
+ON sc.cno=c.cno
+WHERE s.sname='zhang3';
+
+(7)查询oldguo老师教的学生名.
+SELECT t.tname,s.sname FROM teacher AS t
+JOIN course AS c 
+ON t.tno=c.tno
+JOIN sc
+ON c.cno=sc.cno
+JOIN student AS s 
+ON sc.sno=s.sno
+WHERE t.tname='oldguo';
+
+
+(8) 查询 oldguo所教课程的平均分数
+
+ SELECT t.`tname`,AVG(sc.`score`)
+ FROM teacher AS t
+ JOIN course AS c
+ ON t.`tno`=c.`tno`
+ JOIN sc
+ ON c.`cno`=sc.`cno`
+ WHERE t.`tname`='oldguo';
+ group by sc.cno 
+ 
+ 
+(9) 查询oldguo所教的不及格的学生姓名
+ SELECT t.`tname`,s.`sname`,sc.`score` FROM teacher AS t
+ JOIN course AS c
+ ON t.`tno`=c.`tno`
+ JOIN sc
+ ON c.`cno`=sc.`cno`
+ JOIN student AS s
+ ON sc.`sno`=s.`sno`
+ WHERE t.`tname`='oldguo' AND sc.`score`<60;
+ 
+
+========================================
+
+作业: 
+
+### DQL 练习题再做一遍
+
+1. 将student表添加8个新学员
+2. 将teacher表添加2位老师
+3. 将course表添加6门课程
+4. 每位老师保证教不同的2门以上课程
+5. 保证每位老师的每门课程都有至少一人学习
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

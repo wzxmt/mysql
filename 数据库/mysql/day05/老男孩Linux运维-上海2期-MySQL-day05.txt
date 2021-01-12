@@ -1,0 +1,765 @@
+-------------------老男孩Linux运维-上海2期-MySQL-day05-----------------
+
+上集回顾:
+
+外链接
+
+传统
+from  a b   where a.id=b.id 
+
+自然连接
+
+join on 
+a  
+join b    
+on a.id=b.id    
+
+a  join  b   using(id)
+
+left  join  on 
+
+
+子查询    
+
+字符集 
+---->逻辑迁移
+---->建表建库
+---->严格超集
+utf8    
+utf8mb4    
+utf8mb3
+
+数据类型******
+char(20)    
+varchar(20)   
+
+
+
+information_schema.tables 
+数据量
+每个库数据量
+全库的数据量
+配合concat()
+
+show
+
+
+===================
+索引种类
+Btree
+Rtree
+HASH
+FT
+
+Btree 分类
+聚集索引:基于主键,自动生成的,一般是建表时创建主键
+辅助索引:人为创建的(普通,覆盖)
+唯一索引:人为创建
+
+alter table 表名  add index 索引名(列) 
+alter table 表名  add index 索引名(列,列2,列3) 
+
+前缀索引
+alter table 表名  add index 索引名(列(10)) 
+alter table 表名  add unique index 索引名(列) 
+
+alter  table  表名  drop索引名
+
+desc
+show index from city;
+
+alter table t1 add index idx_num(telnum);
+
+
+
+辅助索引(BTREE)
+怎么生成的:
+根据创建索引时,指定的列的值,进行排序后,存储的叶子节点中
+好处:
+1.优化了查询,减少cpu mem IO消耗
+2.减少的文件排序
+
+覆盖索引:(联合索引)
+select * from  people   where   gender ,  age ,  money
+
+a,b,c
+
+where  a b c       cpu  mem  io
+where  a b         
+
+
+IO,MEM  相当
+where  a   
+
+CPU稍微高一些        
+where  a c         
+
+
+where  b c a 
+where  c a b
+where  c 
+where  b
+
+好处:
+减少回表查询的几率
+
+
+聚集索引:
+建表时,如果有主键列,自动生成聚集索引
+没有主键列,回去找unique 
+
+好处:
+减少回表
+将随机IO转换成顺序IO.
+
+======================================================
+
+explain(desc)命令的应用
+
+获取优化器选择后的执行计划
+ oldguo [world]>explain select * from city where countrycode='CHN'\G
+*************************** 1. row ***************************
+           id: 1
+  select_type: SIMPLE
+        table: city
+         type: ref
+possible_keys: CountryCode,idx_co_po
+          key: CountryCode
+      key_len: 3
+          ref: const
+         rows: 1
+        Extra: Using index condition
+1 row in set (0.00 sec)
+
+possible_keys: CountryCode,idx_co_po      ---->可能会走的索引
+key: CountryCode						  ---->真正走的索引
+type: ref								  ---->索引类型
+Extra: Using index condition              ---->额外信息
+
+type :
+ALL                  --->全表扫描
+explain  select * from city;
+线上业务一般不会出现全表扫描
+
+一般会使用备库:数据处理分析
+
+Index                --->全索引扫描
+explain  select countrycode from city;
+基本上很少出现
+
+range: 索引范围扫描
+针对索引键做以下查询时
+>   <    like      in  or
+我们觉得使用索引优化查询的最低级别
+< >和小于,最好执行上,下
+like 语句前导字符尽量唯一性强一些,不能出现%在前面.
+对于in 和 or 尽量改写为union all
+
+ref :辅助索引等值查询
+explain select * from city where countrycode='CHN' 
+union all  
+select * from city where countrycode='USA'
+
+eq_ref: 表连接时on的条件列是主键或者唯一键
+a join b 
+on a.id=b.id 
+where 
+如果达不到,至少要有辅助索引,一般和where条件列建联合索引
+
+system/const:
+where条件列,是主键或唯一键的等值查询
+explain  select * from city where id=10;
+
+NULL:索引中获取不到值的时候
+  
+Extra:
+Using filesort
+
+辅助索引 应用顺序(优化器选择的)
+如果查询条件:符合覆盖索引的顺序时,优先选择覆盖索引
+不符合顺序,优先会走where条件的索引
+
+优化方法,将where列和order列建立联合索引
+alter table city add index idx_co_po(countrycode,population);
+
+
+explain使用场景
+1.mysql出现性能问题(排除硬件,架构原因,参数,锁)
+2.获取到问题语句
+	应急情况:数据库hang(卡了,资源耗尽)
+	处理过程:
+		(1)show processlist;   获取到导致数据库hang的语句
+	    (2)explain 分析SQL的执行计划,有没有走索引,索引的类型情况
+	    (3)建索引,改语句
+
+	一段时间慢:
+		(1)记录慢日志slowlog,分析slowlog
+		(2)explain 分析SQL的执行计划,有没有走索引,索引的类型情况
+	    (3)建索引,改语句
+
+--------------------------------------
+
+建立索引的原则（运维规范）
+select count(distinct user) from mysql.user;
+select count(distinct user,host) from mysql.user; 
+
+一、数据库索引的设计原则：
+
+	为了使索引的使用效率更高，在创建索引时，必须考虑在哪些字段上创建索引和创建什么类型的索引。
+那么索引设计原则又是怎样的?
+
+0.建表时一定要有主键,如果相关列可以作为主键,做一个无关列
+
+1．选择唯一性索引
+	唯一性索引的值是唯一的，可以更快速的通过该索引来确定某条记录。
+例如，学生表中学号是具有唯一性的字段。为该字段建立唯一性索引可以很快的确定某个学生的信息。
+如果使用姓名的话，可能存在同名现象，从而降低查询速度。
+
+主键索引和唯一键索引，在查询中使用是效率最高的。
+
+select count(*) from world.city;
+select count(distinct countrycode) from world.city;
+select count(distinct countrycode,population ) from world.city;
+ 
+注意：如果重复值较多，可以考虑采用联合索引
+ 
+
+2．为经常需要排序、分组和联合操作的字段建立索引
+经常需要ORDER BY、GROUP BY,join on等操作的字段，排序操作会浪费很多时间。
+如果为其建立索引，可以有效地避免排序操作。
+
+
+
+3．为常作为where查询条件的字段建立索引
+如果某个字段经常用来做查询条件，那么该字段的查询速度会影响整个表的查询速度。因此，
+为这样的字段建立索引，可以提高整个表的查询速度。
+    3.1  经常查询
+    3.2  列值的重复值少(业务层面调整)
+
+注：如果经常作为条件的列，重复值特别多，可以建立联合索引。
+
+
+4．尽量使用前缀来索引
+如果索引字段的值很长，最好使用值的前缀来索引。例如，TEXT和BLOG类型的字段，进行全文检索
+会很浪费时间。如果只检索字段的前面的若干个字符，这样可以提高检索速度。
+
+
+
+------------------------以上的是重点关注的，以下是能保证则保证的--------------------
+
+5．限制索引的数目
+索引的数目不是越多越好。每个索引都需要占用磁盘空间，索引越多，需要的磁盘空间就越大。
+修改表时，对索引的重构和更新很麻烦。越多的索引，会使更新表变得很浪费时间。
+
+6．删除不再使用或者很少使用的索引(percona toolkit)
+表中的数据被大量更新，或者数据的使用方式被改变后，原有的一些索引可能不再需要。数据库管理
+员应当定期找出这些索引，将它们删除，从而减少索引对更新操作的影响。
+
+7.大表加索引,要在业务不繁忙期间操作
+
+
+建索引原则
+(1) 必须要有主键,如果没有可以做为主键条件的列,创建无关列
+(2) 经常做为where条件列   order by  group by   join on的条件(业务:产品功能+用户行为)
+(3) 最好使用唯一值多的列作为索引,如果索引列重复值较多,可以考虑使用联合索引
+(4) 列值长度较长的索引列,我们建议使用前缀索引.
+(5) 降低索引条目,一方面不要创建没用索引,不常使用的索引清理,percona toolkit 
+(6) 索引维护要避开业务繁忙期
+
+
+===============================================
+
+不走索引的情况（开发规范）
+
+重点关注：
+1) 没有查询条件，或者查询条件没有建立索引 
+
+select * from tab;   全表扫描。
+select  * from tab where 1=1;
+
+在业务数据库中，特别是数据量比较大的表。
+是没有全表扫描这种需求。
+
+1、对用户查看是非常痛苦的。
+2、对服务器来讲毁灭性的。
+
+（1）select * from tab;
+
+SQL改写成以下语句：
+selec  * from tab  order by  price  limit 10      需要在price列上建立索引
+
+
+（2）
+select  * from  tab where name='zhangsan'          name列没有索引
+
+改：
+	1、换成有索引的列作为查询条件
+	2、将name列建立索引
+	
+	
+2) 查询结果集是原表中的大部分数据，应该是25％以上。 
+
+查询的结果集，超过了总数行数25%，优化器觉得就没有必要走索引了。
+
+假如：tab表 id，name    id:1-100w  ，id列有索引
+
+select * from tab  where id>500000;
+
+如果业务允许，可以使用limit控制。
+
+怎么改写 ？
+结合业务判断，有没有更好的方式。如果没有更好的改写方案
+尽量不要在mysql存放这个数据了。放到redis里面。
+
+
+3) 索引本身失效，统计数据不真实 
+索引有自我维护的能力。
+对于表内容变化比较频繁的情况下，有可能会出现索引失效。
+
+
+
+4) 查询条件使用函数在索引列上，或者对索引列进行运算，运算包括(+，-，*，/，! 等) 
+例子： 
+错误的例子：select * from test where id-1=9; 
+正确的例子：select * from test where id=10;
+
+算术运算
+函数运算
+子查询
+
+5)隐式转换导致索引失效.这一点应当引起重视.也是开发中经常会犯的错误. 
+
+这样会导致索引失效. 错误的例子：
+------------------------
+mysql> alter table tab add index inx_tel(telnum);
+Query OK, 0 rows affected (0.03 sec)
+Records: 0  Duplicates: 0  Warnings: 0
+
+mysql> 
+mysql> desc tab;
++--------+-------------+------+-----+---------+-------+
+| Field  | Type        | Null | Key | Default | Extra |
++--------+-------------+------+-----+---------+-------+
+| id     | int(11)     | YES  |     | NULL    |       |
+| name   | varchar(20) | YES  |     | NULL    |       |
+| telnum | varchar(20) | YES  | MUL | NULL    |       |
++--------+-------------+------+-----+---------+-------+
+3 rows in set (0.01 sec)
+
+
+mysql> select * from tab where telnum='1333333';
++------+------+---------+
+| id   | name | telnum  |
++------+------+---------+
+|    1 | a    | 1333333 |
++------+------+---------+
+1 row in set (0.00 sec)
+
+mysql> select * from tab where telnum=1333333;
++------+------+---------+
+| id   | name | telnum  |
++------+------+---------+
+|    1 | a    | 1333333 |
++------+------+---------+
+1 row in set (0.00 sec)
+
+mysql> explain  select * from tab where telnum='1333333';
++----+-------------+-------+------+---------------+---------+---------+-------+------+-----------------------+
+| id | select_type | table | type | possible_keys | key     | key_len | ref   | rows | Extra                 |
++----+-------------+-------+------+---------------+---------+---------+-------+------+-----------------------+
+|  1 | SIMPLE      | tab   | ref  | inx_tel       | inx_tel | 63      | const |    1 | Using index condition |
++----+-------------+-------+------+---------------+---------+---------+-------+------+-----------------------+
+1 row in set (0.00 sec)
+
+mysql> explain  select * from tab where telnum=1333333;
++----+-------------+-------+------+---------------+------+---------+------+------+-------------+
+| id | select_type | table | type | possible_keys | key  | key_len | ref  | rows | Extra       |
++----+-------------+-------+------+---------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | tab   | ALL  | inx_tel       | NULL | NULL    | NULL |    2 | Using where |
++----+-------------+-------+------+---------------+------+---------+------+------+-------------+
+1 row in set (0.00 sec)
+
+
+mysql> explain  select * from tab where telnum=1555555;
++----+-------------+-------+------+---------------+------+---------+------+------+-------------+
+| id | select_type | table | type | possible_keys | key  | key_len | ref  | rows | Extra       |
++----+-------------+-------+------+---------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | tab   | ALL  | inx_tel       | NULL | NULL    | NULL |    2 | Using where |
++----+-------------+-------+------+---------------+------+---------+------+------+-------------+
+1 row in set (0.00 sec)
+
+mysql> explain  select * from tab where telnum='1555555';
++----+-------------+-------+------+---------------+---------+---------+-------+------+-----------------------+
+| id | select_type | table | type | possible_keys | key     | key_len | ref   | rows | Extra                 |
++----+-------------+-------+------+---------------+---------+---------+-------+------+-----------------------+
+|  1 | SIMPLE      | tab   | ref  | inx_tel       | inx_tel | 63      | const |    1 | Using index condition |
++----+-------------+-------+------+---------------+---------+---------+-------+------+-----------------------+
+1 row in set (0.00 sec)
+
+mysql> 
+
+---------------------------------------
+
+6) 
+<>  ，not in 不走索引
+
+EXPLAIN SELECT * FROM teltab WHERE telnum   <> '110';
+EXPLAIN  SELECT * FROM teltab WHERE telnum  NOT IN ('110','119');
+------------
+mysql> select * from tab where telnum <> '1555555';
++------+------+---------+
+| id   | name | telnum  |
++------+------+---------+
+|    1 | a    | 1333333 |
++------+------+---------+
+1 row in set (0.00 sec)
+
+mysql> explain select * from tab where telnum <> '1555555';
+
+
+-----
+单独的>,<,in 有可能走，也有可能不走，和结果集有关，尽量结合业务添加limit
+or或in  尽量改成union
+
+EXPLAIN  SELECT * FROM teltab WHERE telnum   IN ('110','119');
+改写成：
+
+EXPLAIN SELECT * FROM teltab WHERE telnum='110'
+UNION ALL
+SELECT * FROM teltab WHERE telnum='119'
+
+-----------------------------------
+7)   like "%_" 百分号在最前面不走
+
+EXPLAIN SELECT * FROM teltab WHERE telnum LIKE '31%'   走range索引扫描
+
+EXPLAIN SELECT * FROM teltab WHERE telnum LIKE '%110'  不走索引
+
+
+%linux%类的搜索需求，可以使用elasticsearch 专门做搜索服务的数据库产品
+
+
+8) 单独引用联合索引里非第一位置的索引列.作为条件查询时不走索引.
+列子：
+复合索引：
+
+DROP TABLE t1
+CREATE TABLE t1 (id INT,NAME VARCHAR(20),age INT ,sex ENUM('m','f'),money INT);
+
+ALTER TABLE t1 ADD INDEX t1_idx(money,age,sex);
+
+DESC t1
+SHOW INDEX FROM t1
+
+走索引的情况测试：
+EXPLAIN SELECT NAME,age,sex,money FROM t1 WHERE money=30 AND age=30  AND sex='m';
+EXPLAIN SELECT NAME,age,sex,money FROM t1 WHERE money=30 AND age=30  ;
+EXPLAIN SELECT NAME,age,sex,money FROM t1 WHERE money=30  AND sex='m';    ----->部分走索引
+不走索引的：
+EXPLAIN SELECT  NAME,age,sex,money FROM t1 WHERE  age=20
+EXPLAIN SELECT NAME,age,sex,money FROM t1 WHERE  age=30  AND sex='m';
+EXPLAIN SELECT NAME,age,sex,money FROM t1 WHERE   sex='m';
+
+========================小结==============================
+1.索引种类
+2.Btree索引种类
+聚集索引:优先选择主键列,没有主键就选唯一键
+辅助索引(普通索引,覆盖形式)
+唯一索引:有可能被选择为聚集索引
+3. 索引的建立方法
+4. 索引运维的原则
+5. 不走索引的情况
+6.expalin(type,extra)
+=======================
+7.btree理论型的知识(扩展项)
+
+========================
+===========压力测试===========
+1、模拟数据库数据
+为了测试我们创建一个oldboy的库创建一个t1的表，然后导入50万行数据，脚本如下：
+vim slap.sh
+#!/bin/bash  
+HOSTNAME="localhost" 
+PORT="3306" 
+USERNAME="root" 
+PASSWORD="123" 
+DBNAME="oldboy" 
+TABLENAME="t1" 
+#create database 
+mysql -h ${HOSTNAME} -P${PORT} -u${USERNAME} -p${PASSWORD} -e "drop database if exists ${DBNAME}" 
+create_db_sql="create database if not exists ${DBNAME}" 
+mysql -h ${HOSTNAME} -P${PORT} -u${USERNAME} -p${PASSWORD} -e "${create_db_sql}" 
+#create table 
+create_table_sql="create table if not exists ${TABLENAME}(stuid int not null primary key,stuname varchar(20) not null,stusex char(1)   
+not null,cardid varchar(20) not null,birthday datetime,entertime datetime,address varchar(100)default null)" 
+mysql -h ${HOSTNAME} -P${PORT} -u${USERNAME} -p${PASSWORD} ${DBNAME} -e "${create_table_sql}" 
+#insert data to table 
+i="1" 
+while [ $i -le 500000 ]  
+do  
+insert_sql="insert into ${TABLENAME}  values($i,'alexsb_$i','1','110011198809163418','1990-05-16','2017-09-13','oldboyedu')" 
+mysql -h ${HOSTNAME} -P${PORT} -u${USERNAME} -p${PASSWORD} ${DBNAME} -e "${insert_sql}" 
+let i++  
+done  
+#select data  
+select_sql="select count(*) from ${TABLENAME}" 
+mysql -h ${HOSTNAME} -P${PORT} -u${USERNAME} -p${PASSWORD} ${DBNAME} -e "${select_sql}"
+
+执行脚本：
+sh slap.sh
+
+
+2、检查数据可用性
+mysql -uroot -p123
+select count(*) from oldboy.t1;
+
+3、在没有优化之前我们使用mysqlslap来进行压力测试
+mysqlslap --defaults-file=/etc/my.cnf \
+ --concurrency=100 --iterations=1 --create-schema='oldboy' \
+--query="select * from oldboy.t1 where stuname='alexsb_100'" engine=innodb \
+--number-of-queries=200000 -uroot -p123 -verbose
+
+========================================================
+
+第八章 存储引擎 
+
+1.存储引擎种类
+InnoDB
+MyISAM
+MEMORY
+ARCHIVE	
+FEDERATED
+EXAMPLE
+BLACKHOLE
+MERGE
+NDBCLUSTER
+CSV
+还可以使用第三方存储引擎。
+插件类存储引擎,是在表级别设定的.
+MySQL 5.5 以后默认存储引擎innodb
+TokuDB  ---->zabbix : insert 2-3 ,压缩比 8-10倍
+myrocks
+
+
+2.Innodb存储引擎与MyISAM区别 
+Innodb                                        MyISAM
+MVCC(多版本并发控制)                         不支持
+锁(行级别)                                   表级别
+外键										  不支持
+事务****                                      不支持
+热备                                          温备
+CSR(断电时,故障自动恢复)                     不支持
+
+
+3.查看存储引擎
+show engines;                    
+show create table world.city;
+
+select table_schema,table_name ,engine 
+from information_schema.tables 
+where engine='innodb';
+
+SELECT @@default_storage_engine;
+show table status like 'city';
+show table status like 'city'\G
+
+4.Innodb存储引擎物理存储方式介绍
+表空间(TBS)管理模式:
+来自于Oracle
+共享表空间:----->类似于Oracle管理模式
+独立表空间:每个表单独使用表空间存储
+5.5默认:共享表空间
+5.6以后:表默认管理模式是独立表空间,共享表空间也存在
+
+5.表空间存储数据分类
+
+共享表空间: ibdata1 
+存了什么?
+系统数据
+undo日志
+磁盘临时表
+
+独立表空间:
+t1.ibd    ---->t1表的数据和索引
+t1.frm    ---->t1表的列相关信息
+
+6.表空间操作
+
+共享表空间:
+我们建议,在初始化数据的时候就配置好
+一般建议2-3个,512M
+/etc/my.cnf
+innodb_data_file_path=ibdata1:76M;ibdata2:50M:autoextend
+mysql_install_db 
+
+独立表空间:
+一个表一个ibd文件,存储表数据和索引
+show variables like 'innodb_file_per_table';
+
+
+
+alter table t1 discard tablespace;
+alter table t1 import tablespace;
+
+innodb 的表
+表数据和索引:t1.ibd 
+列的基本信息:t1.frm 
+其他的属性信息:基表
+
+alter table t1 discard tablespace;   将表的ibd文件删掉
+alter table t1 import tablespace;    将idb文件导入回来
+
+
+
+
+
+=============================
+真实的学生案例：
+
+jira(bug追踪) 、 confluence(内部知识库)    ------>LNMT 
+
+-------------------
+联想服务器（IBM）   
+磁盘500G 没有raid
+centos 6.8
+mysql 5.6.33  innodb引擎  独立表空间
+备份没有，日志也没开
+------------------
+
+编译→制作rpm
+
+/usr/bin/mysql
+
+/var/lib/mysql
+
+confulence   jira
+
+所有软件和数据都在"/"
+------------
+断电了，启动完成后“/” 只读
+
+fsck   重启
+
+启动mysql启动不了。
+
+结果：confulence库 在  ， jira库不见了
+------------
+求助：
+	这种情况怎么恢复？
+	
+我问：
+	有备份没
+求助：
+	连二进制日志都没有，没有备份，没有主从
+我说：
+	没招了，jira需要硬盘恢复了。
+求助：
+	1、jira问题拉倒中关村了
+	2、能不能暂时把confulence库(107张表)先打开用着	
+	将生产库confulence，拷贝到1:1虚拟机上/var/lib/mysql,直接访问时访问不了的
+	
+问：有没有工具能直接读取ibd
+
+我说：我查查，最后发现没有
+
+
+我想出一个办法来：
+create table xxx
+alter table  confulence.t1 discard tablespace;
+alter table confulence.t1 import tablespace;
+
+
+虚拟机测试可行。
+
+CREATE TABLE `city_new` (
+  `ID` int(11) NOT NULL AUTO_INCREMENT,
+  `Name` char(35) NOT NULL DEFAULT '',
+  `CountryCode` char(3) NOT NULL DEFAULT '',
+  `District` char(20) NOT NULL DEFAULT '',
+  `Population` int(11) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`ID`),
+  KEY `CountryCode` (`CountryCode`),
+  KEY `idx_popu` (`Population`)
+) ENGINE=InnoDB AUTO_INCREMENT=4080 DEFAULT CHARSET=latin1;
+
+
+面临的问题，confulence库中一共有107张表。
+1、创建107和和原来一模一样的表。
+
+他有2016年的历史库，我让他去他同事电脑上 mysqldump备份confulence库
+mysqldump -uroot -ppassw0rd -B  confulence --no-data >test.sql
+
+拿到你的测试库，进行恢复
+	到这步为止，表结构有了。
+	
+2、表空间删除。
+select concat('alter table ',table_schema,'.'table_name,' discard tablespace;') from information_schema.tables where table_schema='confluence' into outfile '/tmp/discad.sql';
+	source /tmp/discard.sql
+	
+	执行过程中发现，有20-30个表无法成功。主外键关系
+	很绝望，一个表一个表分析表结构，很痛苦。
+	set foreign_key_checks=0 跳过外键检查。
+
+	把有问题的表表空间也删掉了。
+3、拷贝生产中confulence库下的所有表的ibd文件拷贝到准备好的环境中
+	select concat('alter table ',table_schema,'.'table_name,' import tablespace;') from information_schema.tables where table_schema='confluence' into outfile '/tmp/discad.sql';
+	
+4、验证数据
+	表都可以访问了，数据挽回到了出现问题时刻的状态（2-8）
+
+=====================================================================
+
+额外扩展
+
+drop  database   world  
+rm -rf world 
+drop   table  city   ---->  rm -rf frm   ibd   元数据
+	
+基于Linux文件句柄恢复rm的文件
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

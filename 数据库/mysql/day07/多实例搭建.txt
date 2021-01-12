@@ -1,0 +1,64 @@
+1. 创建多个专用目录
+mkdir /data/330{7..9}/data -p
+
+2. 准备多个配置文件
+vim /data/3307/my.cnf
+
+[mysqld]
+basedir=/application/mysql
+datadir=/data/3307/data
+socket=/data/3307/mysql.sock
+port=3307
+log-error=/data/3307/mysql.log
+skip-name-resolve
+server-id=7
+log_bin=/data/3307/data/mysql-bin
+binlog_format=row
+
+--------------------------
+vim /data/3308/my.cnf
+
+[mysqld]
+basedir=/application/mysql
+datadir=/data/3308/data
+port=3308
+socket=/data/3308/mysql.sock
+log-error=/data/3308/mysql.log
+skip-name-resolve
+server-id=8
+
+------------------
+vim /data/3309/my.cnf
+
+[mysqld]
+basedir=/application/mysql
+datadir=/data/3309/data
+socket=/data/3309/mysql.sock
+port=3309
+log-error=/data/3309/mysql.log
+skip-name-resolve
+server-id=9
+
+3. 初始化多次数据库
+
+初始化三套数据：
+/application/mysql/scripts/mysql_install_db --user=mysql --basedir=/application/mysql --datadir=/data/3307/data
+
+/application/mysql/scripts/mysql_install_db --user=mysql --basedir=/application/mysql --datadir=/data/3308/data
+
+/application/mysql/scripts/mysql_install_db --user=mysql --basedir=/application/mysql --datadir=/data/3309/data
+
+
+修改权限：
+
+touch /data/330{7..9}/mysql.log
+chown -R mysql.mysql /data/330*
+
+
+启动数据库：
+/application/mysql/bin/mysqld_safe --defaults-file=/data/3307/my.cnf &
+/application/mysql/bin/mysqld_safe --defaults-file=/data/3308/my.cnf &
+/application/mysql/bin/mysqld_safe --defaults-file=/data/3309/my.cnf &
+
+验证：
+netstat -lnp|grep 330

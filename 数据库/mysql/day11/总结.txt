@@ -1,0 +1,660 @@
+
+1. 数据库(DBA)
+官方定义岗位职责:
+初级:  安装,基本配置
+中级:  监控,故障处理,备份恢复,基本优化,主备架构
+高级:  高可用架构设计及维护,高性能架构(读写分离,分布式),高级优化
+
+老男孩课程框架:
+1.安装部署
+2.体系结构及管理
+3.SQL语句应用
+4.索引及执行计划
+5.存储引擎
+6.日志管理
+7.备份与恢复
+8.主从复制
+9.高可用及读写分离
+10.优化
+11.分布式 
+12.redis(NoSQL)
+
+===================================
+MySQL简介
+DBMS 数据库管理系统
+作用是什么?
+管理业务当中核心的数据.
+用户信息,内容,积分,交易类数据
+
+DBMS种类:
+RDBMS(关系型数据库管理系统)
+Oracle,MySQL,MSSQL,PG
+
+NoSQL(非关系性管理系统)
+Mongodb  Redis  memcached  
+MySQL,Redis
+
+
+MySQL数据库版本的选择
+
+企业主流:
+
+5.6  
+5.6.34 5.6.36  5.6.38    
+
+5.7 
+5.7.18  5.7.20 5.7.22 
+
+新上环境:GA 6-12 月
+
+最新版本:
+8.0
+
+=========================
+centos 6.9 部署 MySQL 5.7.20
+
+1.上传软件到/usr/local ,并解压
+cd /usr/local
+tar xf mysql-5.7.20-linux-glibc2.12-x86_64.tar.gz 
+mv mysql-5.7.20-linux-glibc2.12-x86_64  mysql
+2.创建用户和数据目录
+useradd mysql
+mkdir /data/mysql -p 
+ 
+chown -R mysql. /usr/local/mysql/
+chown -R mysql. /data/mysql/
+ls -ld /usr/local/mysql
+ls -ld /data/mysql
+
+3. 初始化数据(系统数据)
+rm -rf /etc/my.cnf*
+
+vim /etc/profile
+export PATH=/usr/local/mysql/bin:$PATH
+source /etc/profile
+
+mysqld --initialize-insecure --user=mysql --basedir=/usr/local/mysql --datadir=/data/mysql
+
+参数说明
+--initialize-insecure    : 关闭安全管理策略
+--initialize             : 打开安全管理策略
+--user=mysql             : 指定管理用户
+--basedir=/usr/local/mysql :指定软件的安装路径
+--datadir=/data/mysql      :指定数据的存放位置
+
+
+4.生成配置文件
+vim /etc/my.cnf 
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/mysql 
+socket=/tmp/mysql.sock 
+[mysql]
+socket=/tmp/mysql.sock 
+
+5.启动和关闭
+cd /usr/local/mysql/support-files
+cp mysql.server /etc/init.d/mysqld
+
+/etc/init.d/mysqld start  
+/etc/init.d/mysqld stop 
+
+
+6. 连接测试
+[root@db01 ~]# mysql 
+
+7.设置密码
+[root@db01 ~]# mysqladmin password 123
+[root@db01 ~]# mysql -uroot -p
+
+
+
+MySQL体系结构及管理
+1.服务器 客户端模型(C/S)
+ 
+TCP/IP:适用于所有场景的登录
+IP   prot  user  password
+
+Socket 套接字,适用于本地登录
+
+ 
+MySQL实例
+mysqld   +Master thread + 工作thread  + 内存结构  = 实例
+ 
+老板---->总经理---->员工 ---办公室 =  公司
+ 
+ 
+mysqld程序模型(工作原理)
+
+使用或管理MySQL,通过SQL语句(mysql专用命令)
+ 
+mysql -uroot -p 
+select user,password from mysql.user;
+ 
+连接层
+1.提供链接协议(TCP/ip,socket)
+2.验证用户名,密码,地址
+3.提供专用链接线程:接收命令,返回结果
+show [full] processlist;
+
+SQL层
+1.语法检查
+2.权限检查
+3.语义检查
+SQL 种类:
+DDL
+DCL
+DML
+DQL
+4.专门解析器解析SQL,生成多种执行计划
+5.优化器,选择代价(cpu/mem/io)最低的执行计划,管理员可以通过一些手段,影响优化器选择.
+6.执行器,会根据优化器选择出的执行计划,执行SQL语句,执行完的结果,传输给存储引擎层
+
+7.提供查询缓存,一般会关闭,用redis来替代此功能
+8.记录日志的功能
+
+存储引擎层 
+负责从磁盘找到想要的数据,将16进制数据结构化成表的方式返回给用户
+ 
+ 
+MySQL的逻辑结构(对象)
+
+库:
+库名 
+库属性
+----> 
+表:
+表名
+列(字段):列名,列约束,属性
+表内容(数据行)
+表属性
+
+MySQL物理存储结构
+库:   存储方式是目录
+表:   
+t1.frm
+t1.ibd
+
+======================
+MySQL基础管理
+ 1.用户及权限管理
+ 
+ Linux用户作用
+ (1)登录系统
+ (2)管理系统的对象
+ MySQL用户作用
+ (1)登录数据库
+ (2)管理数据库对象(库\表)
+ 
+ MySQL用户定义:
+ username@'白名单'
+ 
+ "白名单":控制用户可以从哪登录数据库
+ 
+ 支持的的方式:
+ user@'10.0.0.200'
+ user@'oldboy'
+ user@'10.0.0.%'
+ user@'10.0.0.0/255.255.255.0'
+ user@'10.0.0.5%'
+ user@'%'
+ 
+用户的管理操作:
+ 
+create user oldboy@'10.0.0.%' identified by '123';
+select user,authentication_string,host from mysql.user;
+drop user  oldboy@'10.0.0.%';
+  
+改密码(了解)
+SET PASSWORD FOR oldboy@'10.0.0.%' = '123';
+
+
+设置权限: 
+授权:
+
+grant 权限  on  库表   to  用户 identified by '123'
+
+ALL:除了grant和revoke命令权限外,所有权限都具备
+
+=============
+SELECT,INSERT, UPDATE, DELETE, CREATE, DROP, RELOAD, SHUTDOWN, PROCESS, FILE, REFERENCES, INDEX, ALTER, SHOW DATABASES, SUPER, CREATE TEMPORARY TABLES, LOCK TABLES, EXECUTE, REPLICATION SLAVE, REPLICATION CLIENT, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, CREATE USER, EVENT, TRIGGER, CREATE TABLESPACE 
+=============
+应用用户:
+SELECT,INSERT, UPDATE
+
+
+on后的条件:
+
+*.*                             /
+wordpress.*                     /wordpress/*
+wordpress.t1                    /wordpress/t1
+
+
+例子:
+1. 授权一个管理员用户,允许root@10.0.0.%登录并管理 mysql
+mysql> grant all on *.* to root@'10.0.0.%' identified by '123';
+
+2. 授权app@'10.0.0.%' 应用用户,只能操作app库下的所有表.
+grant select ,update,insert on app.* to app@'10.0.0.%' identified by '123';
+
+查看授权情况
+show grants for app@'10.0.0.%';
+
+3. 回收权限
+
+mysql> revoke update on app.*   from app@'10.0.0.%';
+mysql> show grants for app@'10.0.0.%';
+
+4.补充
+(1)多次授权,权限是叠加不会覆盖
+grant select ,update,insert on app.* to app@'10.0.0.%' identified by '123';
+grant delete on app.* to app@'10.0.0.%' identified by '123';
+
+(2)库级别的权限会继承的表上
+grant select ,update,insert on app.* to app@'10.0.0.%' identified by '123';
+grant create  on app.t1 to app@'10.0.0.%' identified by '123';
+
+
+(3) 和应用开发人员沟通
+1.访问什么对象,哪些库哪些表
+2.从哪地址登录数据库
+
+
+2.连接管理
+ mysql命令的使用
+ -u    用户名
+ -p    密码
+ -S    套接字(socket位置)
+ -h    mysql服务器地址
+ -P    端口号
+ -e    免交互执行mysql内部命令
+ <     导入SQL脚本
+ ======================
+ mysql -uroot -p     默认是走的socket
+ mysql -uroot -p -S /tmp/mysql.sock
+ mysql -uroot -p -h 10.0.0.51 -P3306
+ mysql -uroot -p -e "show databases"
+ mysql -uroot -p </root/world.sql
+ 
+
+ 3.启动关闭
+ 
+ 启动 
+ mysql.server   
+ ----> mysqld_safe  
+ ------>mysqld
+
+ 关闭:
+ /etc/init.d/mysqld stop
+ mysqladmin -uroot -p shutdown
+
+ 4.初始化配置
+ 作用:让mysql按照我们的意愿启动,可以通过参数控制.
+ 
+ 预编译(源码包安装时cmake),只会设置固定不变的参数,硬编码到程序
+ 命令行
+ 
+ 初始化配置文件(my.cnf)
+ 
+ 配置文件读取顺序
+ /etc/my.cnf        
+ /etc/mysql/my.cnf 
+ /usr/local/mysql/etc/my.cnf 
+ ~/.my.cnf
+ 
+ mysqld_safe   --defaults-file=/tmp/1.cnf &
+ 
+ 
+
+ 如何书写my.cnf 
+ 
+ [标签]
+ asda
+ asdas 
+ asa
+ [标签2]
+ asa
+ 
+标签的类型:
+server:控制的是服务器的启动
+[server] 
+[mysqld]   ******
+[mysqld_safe]
+
+client:控制的本地客户端程序,影响不了远程的客户端
+
+[client]
+[mysql]   ******
+[mysqladmin]
+[mysqldump]
+ 
+
+ vim /etc/my.cnf 
+ [mysqld]
+ basedir=/usr/local/mysql
+ datadir=/data/mysql 
+ socket=/tmp/mysql.sock 
+ server_id=6 
+ port=3306 
+ log_error=/var/log/mysql.log
+ [mysql]
+ socket=/tmp/mysql.sock 
+ 
+ 重启生效
+ /etc/init.d/mysqld restart
+ 
+ 
+补充:忘记本地root管理员密码
+ 
+ 1. 停数据库
+ /etc/init.d.mysqld stop
+ 2.关闭验证模块并启动,禁止TCPIP协议
+ mysqld_safe --skip-grant-tables  --skip-networking &
+ 3.进入mysql
+ mysql
+ 4.改密码
+ select user,authentication_string,host from mysql.user;
+ update mysql.user set authentication_string=PASSWORD('123') where user='root' and host='localhost';
+ 
+ 5.关闭mysql,正常启动mysql
+ /etc/init.d/mysqld restart
+  
+  
+ 5.多实例结构
+ 一台服务器中启动多个 mysql
+ 
+ 1.port多个
+ 2.socket多个
+ 3.数据多组
+ 4.多个my.cnf
+ 5.多个目录
+ 
+ 
+ 多实例配置过程
+ 
+(1)创建多组目录
+mkdir -p /data/330{7..9}/data 
+ 
+(2)创建3组配置文件
+ vim /data/3307/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3307/data
+socket=/data/3307/mysql.sock
+server_id=7
+port=3307
+log_error=/data/3307/mysql.log
+~                                   
+ 
+ 
+vim /data/3308/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3308/data
+socket=/data/3308/mysql.sock
+server_id=8
+port=3308
+log_error=/data/3308/mysql.log
+~                                   
+ 
+ 
+vim /data/3309/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3309/data
+socket=/data/3309/mysql.sock
+server_id=9
+port=3309
+log_error=/data/3309/mysql.log
+~                                   
+ (3) 准备3组数据
+mysqld --initialize-insecure --user=mysql --basedir=/usr/local/mysql --datadir=/data/3307/data
+mysqld --initialize-insecure --user=mysql --basedir=/usr/local/mysql --datadir=/data/3308/data
+mysqld --initialize-insecure --user=mysql --basedir=/usr/local/mysql --datadir=/data/3309/data
+ 
+ 
+ (4) 授权 
+ chown -R mysql. /data/330*
+ 
+ (5)启动多实例
+ 
+ mysqld_safe --defaults-file=/data/3307/my.cnf &
+ mysqld_safe --defaults-file=/data/3308/my.cnf &
+ mysqld_safe --defaults-file=/data/3309/my.cnf &
+ 
+
+手工创建日志文件,并授权(日志文件无法创建)
+[root@db01 data]# touch /data/330{7..9}/mysql.log 
+[root@db01 data]# chown -R mysql.mysql /data/*
+
+mysqld_safe --defaults-file=/data/3307/my.cnf &
+mysqld_safe --defaults-file=/data/3308/my.cnf &
+mysqld_safe --defaults-file=/data/3309/my.cnf &
+ 
+ 
+(6)测试连接
+netstat -lnp|grep mysqld
+mysql -S /data/3307/mysql.sock 
+mysql -S /data/3308/mysql.sock 
+mysql -S /data/3309/mysql.sock 
+ 
+ 
+6.MySQL客户端工具内置功能
+
+mysql  内置功能
+use world
+exit,ctrl+D
+ctrl+c 结束上条语句运行(5.7以后支持) 
+\G     
+source /root/world.sql
+
+
+客户端工具
+
+Oracle 
+Sql developer
+pl/sql 
+toad
+
+MySQL 
+sqlyog 
+navicat
+
+
+7.MySQL基础SQL应用
+ SQL种类:
+ DDL(数据定义语言)
+ 库定义:
+-- 库定义
+1. 创建数据库
+CREATE DATABASE oldboy;
+CREATE DATABASE oldguo CHARSET utf8;
+CREATE DATABASE oldgirl CHARSET utf8mb4;
+
+-- 开发规范
+(1) 库名必须小写
+(2) 创建数据库必须指定字符集
+(3) 库名字必须和应用功能有关
+(4) 库名字不能出现数字开头
+(5) 避免使用mysql中敏感单词
+
+2. 删除数据库
+DROP DATABASE oldboy;
+
+3.修改数据库
+ALTER TABLE oldguo CHARSET utf8mb4;
+注意: 改后的字符集一定是改之前的严格超集
+
+-- 表定义(二维表)
+-- 表名,列(列名字,数据类型,[约束,其他属性]),表属性
+
+数据类型:
+
+数值类型:
+TINYINT    -128-127   0-255
+INT       -2^31 2^31-1    0-2^32
+
+字符串
+
+CHAR(11)        定长
+VARCHAR(20)     变长
+ENUM('m','f','n')
+
+时间类型
+DATETIME 
+TIMESTAMP
+
+列的约束及属性
+约束:
+NOT NULL    非空
+UNIQUE      唯一
+PRIMARY KEY 主键
+UNSIGNED    无符号(非负数,加在数值数据类型之后)
+
+列属性:
+DEFAULT         默认值
+AUTO_INCREMENT  自增长
+COMMENT         列注释
+
+
+USE wordpress
+
+CREATE TABLE stu (
+sid  INT NOT NULL PRIMARY KEY AUTO_INCREMENT COMMENT '学号',
+sname VARCHAR(20) NOT NULL  COMMENT '姓名',
+age TINYINT UNSIGNED COMMENT '年龄',
+sgender ENUM('m','f','n') NOT NULL DEFAULT 'n',
+stime DATETIME NOT NULL DEFAULT NOW()
+)ENGINE=INNODB CHARSET=utf8;
+ 
+
+drop table  stu; 
+
+-- alter table
+DESC stu;
+(1)添加stel手机号列
+ALTER TABLE stu ADD stel CHAR(11) NOT NULL UNIQUE ;
+(2)添加wechat 微信列到age后
+ALTER TABLE stu ADD wechat VARCHAR(30) NOT NULL UNIQUE AFTER age;
+(3)在第一列位置,添加accid列
+ALTER TABLE stu ADD accid VARCHAR(20) NOT NULL UNIQUE FIRST;
+(4) 删除accid列
+ALTER TABLE stu DROP accid;
+(5) 修改列age为sage
+ALTER TABLE stu  CHANGE age sage TINYINT;
+(6) 修改stime数据类型为timestamp
+ALTER TABLE stu MODIFY stime TIMESTAMP;
+
+额外补充:
+创建一个stu的备用表stu1(复制表结构)
+CREATE TABLE stu1 LIKE stu;
+创建一个创建一个stu的备用表stu1(复制表结构和数据)
+CREATE TABLE stu2 SELECT * FROM stu;
+物理删除表中所有数据行
+TRUNCATE TABLE stu1;
+==========================
+
+ DCL(数据控制语言)
+ grant revoke 
+ 
+ 
+ DML(数据操作语言)
+ 作用:对于表的数据行进行操作
+
+DESC stu
+
+INSERT INTO 
+stu(sname,sage,wechat,sgender,stel) 
+VALUES
+('zs',18,'oldz','m','110'),
+('ls',9,'oldl','f','119'),
+('ww',9,'oldw','m','120');
+
+SELECT * FROM stu;
+
+ 
+update
+ 
+ 
+ 
+ 
+ 
+delete
+
+
+
+
+
+ 
+ 
+DQL(数据查询语言)
+
+DQL:
+
+SELECT 列   
+FROM  表
+JOIN  表2
+ON 条件
+WHERE 过滤条件
+GROUP BY 列
+ORDER BY  列
+LIMIT 行限制
+=====================
+USE world
+SHOW TABLES
+--> city            城市表
+--> country         国家表
+--> countrylanguage 国家语言表
+
+city      城市表
+DESC city;
+--> id          城市的ID  :1-自增
+--> NAME        城市的名字:
+--> countrycode 城市所在国家的代号:CHN USA
+--> district    城市所在省份
+--> population  城市的人口
+
+(1)查询世界上所有城市所有信息.
+SELECT * FROM city;
+(2) 查询所有城市和所在国家代号信息
+SELECT NAME,countrycode FROM city;
+
+-- where 条件查询的使用
+-- 等值查询
+(3)查询中国所有城市的信息
+SELECT * FROM city WHERE countrycode='CHN';  
+-- 不等值查询
+(4)查询世界上少于100人的城市
+SELECT * FROM city WHERE population<100
+>  <  >= <= ,
+(5)查询人口数量大于500w人口的城市信息
+SELECT * FROM city WHERE population >5000000
+
+SELECT * FROM city WHERE population >5000000
+对于范围查询,要尽可能缩小查询结果集
+SELECT * FROM city 
+WHERE population >5000000
+AND population<6000000
+
+<>或者!=不走索引,不建议出现
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+

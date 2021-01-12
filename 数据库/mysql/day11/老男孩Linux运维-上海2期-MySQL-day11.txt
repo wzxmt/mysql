@@ -1,0 +1,1243 @@
+
+=========================================老男孩Linux运维-上海2期-MySQL-day11===========================
+0.上集回顾:
+vip漂移:应用透明
+master_ip_failover
+binlog_server:额外的数据补偿,实时备份主库的binlog,MHA故障之后,都要重新配置Binlogserver
+(1)清理日志目录  /data/mysql/binlog
+(2)重新开启binlogserver连接新主库
+report_scripts   邮件告警,微信
+
+MHA主节点故障:
+1.启动故障节点
+2.加入新的主从结构中(判断谁是主库,看vip)
+3.配置文件加入新节点信息
+4.重启binlog server
+5.启动 MHA manager
+
+Atlas 
+监控所有节点
+平滑管理后端节点
+读写分离
+
+
+====================================
+
+MyCAT分布式架构应用
+
+1.高性能架构演变
+
+1.1 读写分离:
+优点:对读性能提高很多,代表产品:atlas
+不足:他是不考虑业务的一种架构,对于读操作在理论上可以提升很高性能
+在极端情况下,有可能热点表,只在少量节点被频繁命中.
+对写操作无任何提升.
+
+1.2 传统分布式策略:   
+	代表产品:atlas-sharding 
+	优点:读写性能都进行了提升
+	缺点:无法实现垮分片访问,无法垮分片join
+		 分片策略较少,几乎没有选择性.局限性较大.
+
+1.3 企业级的分布式策略:
+	要达到的目的:
+		1.数据量要均匀
+		2.业务访问要均匀
+		3.高可用策略
+		4.降低耦合*
+		5.具备单节点的所有SQL功能
+		6.可选择多种分片策略
+===================================================
+MyCAT基础架构搭建
+
+架构规划
+
+
+0. 部署5.7.20 二进制包
+解压
+mv mysql-5.7.20-linux-glibc2.12-x86_64 mysql
+chown -R mysql.mysql  /usr/local/mysql
+
+vim /etc/profile
+修改
+export PATH=/usr/local/mysql/bin:$PATH
+source /etc/profile
+
+
+1、环境准备：
+两台虚拟机 db01 db02
+每台创建四个mysql实例：3307 3308 3309 3310
+
+(1)删除历史环境：
+pkill mysqld
+rm -rf /data/330* 
+mv /etc/my.cnf /etc/my.cnf.bak
+
+(2)创建相关目录
+
+mkdir /data/33{07..10}/data -p
+ 
+(3)初始化数据
+
+mysqld --initialize-insecure  --user=mysql --datadir=/data/3307/data --basedir=/usr/local/mysql
+mysqld --initialize-insecure  --user=mysql --datadir=/data/3308/data --basedir=/usr/local/mysql
+mysqld --initialize-insecure  --user=mysql --datadir=/data/3309/data --basedir=/usr/local/mysql
+mysqld --initialize-insecure  --user=mysql --datadir=/data/3310/data --basedir=/usr/local/mysql
+
+
+(4)准备配置文件(注意server_id：51：7,8,9,10，52：17,18,19,20)
+
+vim /data/3307/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3307/data
+socket=/data/3307/mysql.sock
+port=3307
+log-error=/data/3307/mysql.log
+log_bin=/data/3307/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=7
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+
+-----------------------------
+vim /data/3308/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3308/data
+port=3308
+socket=/data/3308/mysql.sock
+log-error=/data/3308/mysql.log
+log_bin=/data/3308/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=8
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+
+------------------
+vim /data/3309/my.cnf
+
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3309/data
+socket=/data/3309/mysql.sock
+port=3309
+log-error=/data/3309/mysql.log
+log_bin=/data/3309/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=9
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+
+vim /data/3310/my.cnf
+
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3310/data
+socket=/data/3310/mysql.sock
+port=3310
+log-error=/data/3310/mysql.log
+log_bin=/data/3310/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=10
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+
+（5）准备启动脚本
+vim /etc/systemd/system/mysqld3307.service 
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3307/my.cnf
+LimitNOFILE = 5000
+
+========================
+#!/bin/bash
+cat >/data/3307/my.cnf<<EOF
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3307/data
+socket=/data/3307/mysql.sock
+port=3307
+log-error=/data/3307/mysql.log
+log_bin=/data/3307/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=17
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+
+cat >/data/3308/my.cnf<<EOF
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3308/data
+port=3308
+socket=/data/3308/mysql.sock
+log-error=/data/3308/mysql.log
+log_bin=/data/3308/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=18
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+
+cat >/data/3309/my.cnf<<EOF
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3309/data
+socket=/data/3309/mysql.sock
+port=3309
+log-error=/data/3309/mysql.log
+log_bin=/data/3309/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=19
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+
+
+cat >/data/3310/my.cnf<<EOF
+
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3310/data
+socket=/data/3310/mysql.sock
+port=3310
+log-error=/data/3310/mysql.log
+log_bin=/data/3310/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=20
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+
+cat >/etc/systemd/system/mysqld3307.service<<EOF
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3307/my.cnf
+LimitNOFILE = 5000
+EOF
+
+cat >/etc/systemd/system/mysqld3308.service<<EOF
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3308/my.cnf
+LimitNOFILE = 5000
+EOF
+
+cat >/etc/systemd/system/mysqld3309.service<<EOF
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3309/my.cnf
+LimitNOFILE = 5000
+EOF
+cat >/etc/systemd/system/mysqld3310.service<<EOF
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3310/my.cnf
+LimitNOFILE = 5000
+EOF
+
+
+（6）修改权限，启动多实例
+
+chown -R mysql.mysql /data/*
+
+systemctl start mysqld3307
+systemctl start mysqld3308
+systemctl start mysqld3309
+systemctl start mysqld3310
+
+
+mysql -S /data/3307/mysql.sock -e "show variables like 'server_id'"
+mysql -S /data/3308/mysql.sock -e "show variables like 'server_id'"
+mysql -S /data/3309/mysql.sock -e "show variables like 'server_id'"
+mysql -S /data/3310/mysql.sock -e "show variables like 'server_id'"
+
+
+(7)节点主从规划：
+
+主从规划（箭头指向谁是主库）
+
+	10.0.0.51:3307    <----->  10.0.0.52:3307
+	10.0.0.51:3309    ------>  10.0.0.51:3307
+	10.0.0.52:3309    ------>  10.0.0.52:3307
+
+
+	10.0.0.52:3308  <----->    10.0.0.51:3308
+	10.0.0.52:3310  ----->	   10.0.0.52:3308
+	10.0.0.51:3310  ----->     10.0.0.51:3308
+
+-----------------------------------------------------
+
+
+节点的多实例配置：
+
+db01:
+10.0.0.51:3307
+
+10.0.0.51:3308
+
+10.0.0.51:3309
+
+10.0.0.51:3310
+
+
+db02:
+10.0.0.52:3307
+
+10.0.0.52:3308
+
+10.0.0.52:3309
+
+10.0.0.52:3310
+
+
+主从规划
+
+shard1：
+	Master：10.0.0.51:3307
+	slave1：10.0.0.51:3309
+	Standby Master：10.0.0.52:3307
+	slave2：10.0.0.52:3309
+	
+	
+	10.0.0.51:3307    <----->  10.0.0.52:3307
+	10.0.0.51:3309    ------>  10.0.0.51:3307
+	10.0.0.52:3309    ------>  10.0.0.52:3307
+
+shard2：
+	Master：10.0.0.52:3308
+	slave1：10.0.0.52:3310
+	Standby Master：10.0.0.51:3308
+	slave2：10.0.0.51:3310
+
+	10.0.0.52:3308  <----->    10.0.0.51:3308
+	10.0.0.52:3310  ----->	   10.0.0.52:3308
+	10.0.0.51:3310  ----->     10.0.0.51:3308
+
+
+
+----------------------------shard1 ---------------------------------------
+===========================================================================
+（1）10.0.0.51:3307    <----->  10.0.0.52:3307	
+10.0.0.51:3307    ----->  10.0.0.52:3307
+
+db02:
+mysql  -S /data/3307/mysql.sock 
+grant replication slave on *.* to repl@'10.0.0.%' identified by '123';
+
+db01:
+mysql  -S /data/3307/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.52', MASTER_PORT=3307, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+---
+10.0.0.51:3307    <-----  10.0.0.52:3307
+db02:
+mysql  -S /data/3307/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.51', MASTER_PORT=3307, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+---------------------------------------
+（2）10.0.0.51:3309    ------>  10.0.0.51:3307
+
+db01:
+mysql  -S /data/3309/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.51', MASTER_PORT=3307, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+-------------------------------------------
+（3） 10.0.0.52:3309    ------>  10.0.0.52:3307
+
+db02:
+mysql  -S /data/3309/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.52', MASTER_PORT=3307, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+-------------------------------------------------------------------------------------
+---------------------------------------shard2-----------------------------------------
+======================================================================================
+
+
+(1) 10.0.0.52:3308  <----->    10.0.0.51:3308
+
+
+10.0.0.52:3308  ----->    10.0.0.51:3308
+db01:
+mysql  -S /data/3308/mysql.sock 
+grant replication slave on *.* to repl@'10.0.0.%' identified by '123';
+
+db02:
+mysql  -S /data/3308/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.51', MASTER_PORT=3308, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+---
+10.0.0.52:3308  <-----   10.0.0.51:3308
+
+db01:
+mysql  -S /data/3308/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.52', MASTER_PORT=3308, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+---------------------------------------------------
+(2)10.0.0.52:3310  ----->	   10.0.0.52:3308
+
+db02:
+mysql  -S /data/3310/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.52', MASTER_PORT=3308, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+------------------------------------------------
+(3)10.0.0.51:3310  ----->     10.0.0.51:3308
+
+db01:
+mysql  -S /data/3310/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.51', MASTER_PORT=3308, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+---------------------------------------------------
+
+检测主从状态
+mysql -S /data/3307/mysql.sock -e "show slave status\G"|grep Yes
+mysql -S /data/3308/mysql.sock -e "show slave status\G"|grep Yes
+mysql -S /data/3309/mysql.sock -e "show slave status\G"|grep Yes
+mysql -S /data/3310/mysql.sock -e "show slave status\G"|grep Yes
+
+=====================
+
+3、MyCAT安装
+
+3.1 预先安装Java运行环境
+yum install -y java
+
+3.2
+下载Mycat-server-xxxxx.linux.tar.gz
+
+http://dl.mycat.io/
+
+3.3 解压文件
+
+tar xf Mycat-server-1.6.5-release-20180122220033-linux.tar.gz
+
+3.4 软件目录结构
+ls
+bin  catlet  conf  lib  logs  version.txt
+
+3.5 启动和连接
+配置环境变量
+vim /etc/profile
+export PATH=/usr/local/mysql/bin:/application/mycat/bin:$PATH
+
+source /etc/profile
+
+启动
+mycat start
+
+连接mycat：
+
+mysql -uroot -p123456 -h 127.0.0.1 -P8066
+
+---------------------------------------
+4、配置文件介绍
+wrapper.log       ---->mycat启动日志
+mycat.log         ---->mycat详细工作日志
+
+schema.xml       ----->主配置文件（读写分离、高可用、分表、节点控制）
+server.xml		 ----->mycat软件本身相关的配置
+rule.xml         ----->分片规则配置文件（分片规则列表、使用方法）
+
+============================================================
+
+5.应用前环境准备
+
+5.1 用户创建及数据库导入:
+db01:
+mysql -S /data/3307/mysql.sock 
+grant all on *.* to root@'10.0.0.%' identified by '123';
+source /root/world.sql
+
+mysql -S /data/3308/mysql.sock 
+grant all on *.* to root@'10.0.0.%' identified by '123';
+source /root/world.sql
+
+5.2 配置文件处理
+
+cd /application/mycat/conf
+
+mv schema.xml schema.xml.bak
+
+vim schema.xml 
+
+<?xml version="1.0"?>  
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">  
+<mycat:schema xmlns:mycat="http://io.mycat/">
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="dn1"> 
+</schema>  
+	<dataNode name="dn1" dataHost="localhost1" database= "wordpress" />  
+	<dataHost name="localhost1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3307" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.51:3309" user="root" password="123" /> 
+	</writeHost> 
+	</dataHost>  
+</mycat:schema>
+
+
+6. 配置文件简单介绍：
+
+（1）逻辑库：schema
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="dn1"> 
+</schema>  
+
+（2）数据节点:datanode
+
+	<dataNode name="dn1" dataHost="localhost1" database= "world" />  
+    
+（3）数据主机：datahost(w和r)  
+  
+	<dataHost name="localhost1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3307" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.52:3309" user="root" password="123" /> 
+	</writeHost> 
+	</dataHost>  
+	
+---------------------------------
+7. 读写分离结构配置
+
+vim schema.xml 
+
+<?xml version="1.0"?>
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">  
+<mycat:schema xmlns:mycat="http://io.mycat/">
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="sh1"> 
+</schema>  
+        <dataNode name="sh1" dataHost="oldguo1" database= "world" />         
+        <dataHost name="oldguo1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1">    
+                <heartbeat>select user()</heartbeat>  
+        <writeHost host="db1" url="10.0.0.51:3307" user="root" password="123"> 
+                        <readHost host="db2" url="10.0.0.51:3309" user="root" password="123" /> 
+        </writeHost> 
+        </dataHost>  
+</mycat:schema>
+
+
+
+
+重启mycat：
+mycat restart
+
+
+读写分离测试
+
+ mysql -uroot -p -h 127.0.0.1 -P8066
+ show variables like 'server_id';
+ begin;
+ show variables like 'server_id';
+
+
+总结： 
+以上案例实现了1主1从的读写分离功能，写操作落到主库，读操作落到从库
+如果主库宕机，从库不能在继续提供服务了。
+
+================================
+
+8. 配置读写分离及高可用
+
+
+[root@db01 conf]# mv schema.xml schema.xml.rw
+[root@db01 conf]# vim schema.xml
+
+<?xml version="1.0"?>  
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">  
+<mycat:schema xmlns:mycat="http://io.mycat/">
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="sh1"> 
+</schema>  
+	<dataNode name="sh1" dataHost="oldguo1" database= "world" />  
+	<dataHost name="oldguo1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3307" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.51:3309" user="root" password="123" /> 
+	</writeHost> 
+    <writeHost host="db3" url="10.0.0.52:3307" user="root" password="123"> 
+			<readHost host="db4" url="10.0.0.52:3309" user="root" password="123" /> 
+	</writeHost>        
+	</dataHost>  
+</mycat:schema>
+
+
+
+
+真正的 writehost：负责写操作的writehost  
+standby  writeHost  ：和readhost一样，只提供读服务
+
+当写节点宕机后，后面跟的readhost也不提供服务，这时候standby的writehost就提供写服务，
+后面跟的readhost提供读服务
+
+测试：
+mysql -uroot -p123456 -h 127.0.0.1 -P 8066
+show variables like 'server_id';
+
+读写分离测试
+ mysql -uroot -p -h 127.0.0.1 -P8066
+ show variables like 'server_id';
+ show variables like 'server_id';
+ show variables like 'server_id';
+ 
+ begin;
+ show variables like 'server_id';
+
+ 对db01 3307节点进行关闭和启动,测试读写操作
+ 
+=======================================================================================
+9. 配置中的属性介绍:
+
+balance属性：
+负载均衡类型，目前的取值有3种： 
+1. balance="0", 不开启读写分离机制，所有读操作都发送到当前可用的writeHost上。 
+2. balance="1"，全部的readHost与standby writeHost参与select语句的负载均衡，简单的说，
+  当双主双从模式(M1->S1，M2->S2，并且M1与 M2互为主备)，正常情况下，M2,S1,S2都参与select语句的负载均衡。 
+3. balance="2"，所有读操作都随机的在writeHost、readhost上分发。
+
+writeType属性 
+负载均衡类型，目前的取值有2种： 
+1. writeType="0", 所有写操作发送到配置的第一个writeHost，
+第一个挂了切到还生存的第二个writeHost，重新启动后已切换后的为主，切换记录在配置文件中:dnindex.properties . 
+2. writeType=“1”，所有写操作都随机的发送到配置的writeHost，但不推荐使用
+
+switchType属性 
+-1 表示不自动切换 
+1 默认值，自动切换 
+2 基于MySQL主从同步的状态决定是否切换 ，心跳语句为 show slave status 
+
+
+datahost其他配置：
+<dataHost name="localhost1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+
+maxCon="1000"：最大的并发连接数
+minCon="10" ：mycat在启动之后，会在后端节点上自动开启的连接线程
+
+
+tempReadHostAvailable="1"
+这个一主一从时（1个writehost，1个readhost时），可以开启这个参数，如果2个writehost，2个readhost时
+<heartbeat>select user()</heartbeat>  监测心跳
+
+---------------------
+11. 垂直分表 
+
+mv  schema.xml  schema.xml.ha 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+vim schema.xml
+<?xml version="1.0"?>
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">
+<mycat:schema xmlns:mycat="http://io.mycat/">
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="sh1">
+    <table name="city_new" dataNode="sh1"/>
+    <table name="country_new" dataNode="sh2"/>
+</schema>
+        <dataNode name="sh1" dataHost="oldguo1" database= "world" />
+        <dataNode name="sh2" dataHost="oldguo2" database= "world" />
+        <dataHost name="oldguo1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType
+="1">
+                <heartbeat>select user()</heartbeat>
+        <writeHost host="db1" url="10.0.0.51:3307" user="root" password="123">
+                        <readHost host="db2" url="10.0.0.51:3309" user="root" password="123" />
+        </writeHost>
+    <writeHost host="db3" url="10.0.0.52:3307" user="root" password="123">
+                        <readHost host="db4" url="10.0.0.52:3309" user="root" password="123" />
+        </writeHost>
+        </dataHost>
+
+        <dataHost name="oldguo2" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType
+="1">
+                <heartbeat>select user()</heartbeat>
+        <writeHost host="db1" url="10.0.0.51:3308" user="root" password="123">
+                        <readHost host="db2" url="10.0.0.51:3310" user="root" password="123" />
+        </writeHost>
+    <writeHost host="db3" url="10.0.0.52:3308" user="root" password="123">
+                        <readHost host="db4" url="10.0.0.52:3310" user="root" password="123" />
+        </writeHost>
+        </dataHost>
+</mycat:schema>
+
+
+
+
+处理后端数据:
+db01:
+mysql -S  /data/3307/mysql.sock 
+use world;
+create table city_new like city;
+insert into city_new select * from  city;
+drop table city;
+drop table countrylanguage;
+drop table country;
+
+
+
+mysql -S  /data/3308/mysql.sock 
+use world;
+create table country_new like country;
+insert into country_new select * from country;
+drop table city;
+drop table countrylanguage;
+drop table country;
+
+重启mycat测试
+mycat restart
+
+
+==============================
+
+12. MyCAT核心特性——分片（水平拆分）
+
+分片：对一个"bigtable"，比如说t3表
+
+(1)行数非常多，800w
+(2)访问非常频繁
+
+分片的目的：
+（1）将大数据量进行分布存储
+（2）提供均衡的访问路由
+
+分片策略：
+范围
+取模
+枚举
+哈希
+时间
+
+全局表
+ER分片
+
+==========
+14 .范围分片
+
+比如说t3表
+(1)行数非常多，2000w（1-1000w:sh1   1000w01-2000w:sh2）
+(2)访问非常频繁，用户访问较离散
+
+
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="dn1"> 
+	<table name="t3" dataNode="dn1,dn2" rule="auto-sharding-long" />
+</schema>  
+	<dataNode name="dn1" dataHost="localhost1" database= "test" /> 
+	<dataNode name="dn2" dataHost="localhost2" database= "test" />  
+
+
+mv schema.xml schema.xml.1	
+	
+vim schema.xml
+
+<?xml version="1.0"?>
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">
+<mycat:schema xmlns:mycat="http://io.mycat/">
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="sh1"> 
+	<table name="t3" dataNode="sh1,sh2" rule="auto-sharding-long" />
+</schema> 
+        <dataNode name="sh1" dataHost="oldguo1" database= "world" />
+        <dataNode name="sh2" dataHost="oldguo2" database= "world" />
+        <dataHost name="oldguo1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType
+="1">
+                <heartbeat>select user()</heartbeat>
+        <writeHost host="db1" url="10.0.0.51:3307" user="root" password="123">
+                        <readHost host="db2" url="10.0.0.51:3309" user="root" password="123" />
+        </writeHost>
+    <writeHost host="db3" url="10.0.0.52:3307" user="root" password="123">
+                        <readHost host="db4" url="10.0.0.52:3309" user="root" password="123" />
+        </writeHost>
+        </dataHost>
+
+        <dataHost name="oldguo2" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType
+="1">
+                <heartbeat>select user()</heartbeat>
+        <writeHost host="db1" url="10.0.0.51:3308" user="root" password="123">
+                        <readHost host="db2" url="10.0.0.51:3310" user="root" password="123" />
+        </writeHost>
+    <writeHost host="db3" url="10.0.0.52:3308" user="root" password="123">
+                        <readHost host="db4" url="10.0.0.52:3310" user="root" password="123" />
+        </writeHost>
+        </dataHost>
+</mycat:schema>
+
+
+
+======================================
+vim rule.xml
+<tableRule name="auto-sharding-long">
+                <rule>
+                        <columns>id</columns>
+                        <algorithm>rang-long</algorithm>
+                </rule>
+				
+
+<function name="rang-long"
+    class="io.mycat.route.function.AutoPartitionByLong">
+    <property name="mapFile">autopartition-long.txt</property>
+</function>
+===================================
+			
+vim autopartition-long.txt
+0-10=0
+11-20=1
+
+=========================
+
+
+创建测试表：
+mysql -S /data/3307/mysql.sock 
+use world
+create table t3 (id int not null primary key auto_increment,name varchar(20) not null);
+
+mysql -S /data/3308/mysql.sock 
+use world
+create table t3 (id int not null primary key auto_increment,name varchar(20) not null);
+
+
+测试：
+重启mycat
+mycat restart
+
+
+mysql -uroot -p123456 -h 127.0.0.1 -P 8066
+
+insert into t3(id,name) values(1,'a');
+insert into t3(id,name) values(2,'b');
+insert into t3(id,name) values(3,'c');
+insert into t3(id,name) values(4,'d');
+
+insert into t3(id,name) values(11,'aa');
+insert into t3(id,name) values(12,'bb');
+insert into t3(id,name) values(13,'cc');
+insert into t3(id,name) values(14,'dd');
+
+
+
+--------------------------------
+
+
+
+15. 取模分片（mod-long）：
+
+取余分片方式：分片键（一个列）与节点数量进行取余，得到余数，将数据写入对应节点
+
+
+比如说: 现在节点数量是2
+
+id / 2  ====> 0（dn1） ,1 （ dn2）
+
+
+id / 4 ----> 0,1,2,3
+1/4   1 
+2/4   2 
+3/4   3 
+4/4   0 
+5/4   1 
+
+
+
+<?xml version="1.0"?>  
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">  
+<mycat:schema xmlns:mycat="http://io.mycat/">
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="dn1"> 
+	<table name="t4" dataNode="dn1,dn2" rule="mod-long" />
+</schema>  
+	<dataNode name="dn1" dataHost="localhost1" database= "test" /> 
+	<dataNode name="dn2" dataHost="localhost2" database= "test" />  
+
+	<dataHost name="localhost1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3307" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.51:3309" user="root" password="123" /> 
+	</writeHost> 
+    <writeHost host="db3" url="10.0.0.52:3307" user="root" password="123"> 
+			<readHost host="db4" url="10.0.0.52:3309" user="root" password="123" /> 
+	</writeHost>        
+	</dataHost>  
+     
+	<dataHost name="localhost2" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3308" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.51:3310" user="root" password="123" /> 
+	</writeHost> 
+    <writeHost host="db3" url="10.0.0.52:3308" user="root" password="123"> 
+			<readHost host="db4" url="10.0.0.52:3310" user="root" password="123" /> 
+	</writeHost>   	
+	</dataHost>  
+</mycat:schema>
+
+
+
+vim rule.xml
+
+107                 <property name="count">2</property>
+
+
+准备测试环境
+	 
+创建测试表：
+mysql -S /data/3307/mysql.sock 
+use test
+create table t4 (id int not null primary key auto_increment,name varchar(20) not null);
+
+mysql -S /data/3308/mysql.sock 
+use test
+create table t4 (id int not null primary key auto_increment,name varchar(20) not null);
+
+重启mycat 
+mycat restart 
+
+
+
+测试： 
+mysql -uroot -p123456 -h10.0.0.52 -P8066
+
+use TESTDB
+insert into t4(id,name) values(1,'a');
+insert into t4(id,name) values(2,'b');
+insert into t4(id,name) values(3,'c');
+insert into t4(id,name) values(4,'d');
+
+分别登录后端节点查询数据
+mysql -S /data/3307/mysql.sock 
+use test
+select * from t4;
+
+mysql -S /data/3308/mysql.sock 
+use test
+select * from t4;
+
+
+
+15. 枚举分片
+sharding-by-intfile
+
+vim schema.xml
+<?xml version="1.0"?>  
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">  
+<mycat:schema xmlns:mycat="http://io.mycat/">
+<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100" dataNode="dn1"> 
+	<table name="t5" dataNode="dn1,dn2" rule="sharding-by-intfile" />
+</schema>  
+	<dataNode name="dn1" dataHost="localhost1" database= "test" /> 
+	<dataNode name="dn2" dataHost="localhost2" database= "test" />  
+
+	<dataHost name="localhost1" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3307" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.51:3309" user="root" password="123" /> 
+	</writeHost> 
+    <writeHost host="db3" url="10.0.0.52:3307" user="root" password="123"> 
+			<readHost host="db4" url="10.0.0.52:3309" user="root" password="123" /> 
+	</writeHost>        
+	</dataHost>  
+     
+	<dataHost name="localhost2" maxCon="1000" minCon="10" balance="1"  writeType="0" dbType="mysql"  dbDriver="native" switchType="1"> 
+		<heartbeat>select user()</heartbeat>  
+	<writeHost host="db1" url="10.0.0.51:3308" user="root" password="123"> 
+			<readHost host="db2" url="10.0.0.51:3310" user="root" password="123" /> 
+	</writeHost> 
+    <writeHost host="db3" url="10.0.0.52:3308" user="root" password="123"> 
+			<readHost host="db4" url="10.0.0.52:3310" user="root" password="123" /> 
+	</writeHost>   	
+	</dataHost>  
+</mycat:schema>
+
+
+vim rule.xml
+
+<tableRule name="sharding-by-intfile"> 
+<rule> <columns>name</columns> 
+<algorithm>hash-int</algorithm> 
+</rule> 
+</tableRule> 
+
+
+<function name="hash-int" class="org.opencloudb.route.function.PartitionByFileMap"> 
+<property name="mapFile">partition-hash-int.txt</property> 
+  <property name="type">1</property>
+                <property name="defaultNode">0</property>
+
+</function> 
+
+partition-hash-int.txt 配置： 
+10000=0 
+10010=1
+DEFAULT_NODE=1 
+columns 标识将要分片的表字段，algorithm 分片函数， 其中分片函数配置中，mapFile标识配置文件名称
+
+
+准备测试环境
+	 
+创建测试表：
+mysql -S /data/3307/mysql.sock 
+use test
+create table t5 (id int not null primary key auto_increment,name varchar(20) not null);
+
+mysql -S /data/3308/mysql.sock 
+use test
+create table t5 (id int not null primary key auto_increment,name varchar(20) not null);
+
+重启mycat 
+mycat restart 
+
+
+
+mysql -uroot -p123456 -h10.0.0.52 -P8066
+
+use TESTDB
+insert into t5(id,name) values(1,'beijing');
+insert into t5(id,name) values(2,'shanghai');
+insert into t5(id,name) values(3,'beijing');
+insert into t5(id,name) values(4,'shanghai');
+insert into t5(id,name) values(5,'tianjin');
+
+
+
+
+
+16 .  Mycat全局表 
+
+
+select  t1.name   ,t.x  from  t1 
+join t 
+
+select  t2.name   ,t.x  from  t2 
+join t 
+
+select  t3.name   ,t.x  from  t3 
+join t 
+
+
+使用场景：
+如果你的业务中有些数据类似于数据字典，比如配置文件的配置，
+常用业务的配置或者数据量不大很少变动的表，这些表往往不是特别大，
+而且大部分的业务场景都会用到，那么这种表适合于Mycat全局表，无须对数据进行切分，
+要在所有的分片上保存一份数据即可，Mycat 在Join操作中，业务表与全局表进行Join聚合会优先选择相同分片内的全局表join，
+避免跨库Join，在进行数据插入操作时，mycat将把数据分发到全局表对应的所有分片执行，在进行数据读取时候将会随机获取一个节点读取数据。 
+
+vim schema.xml 
+
+<table name="t_area" primaryKey="id" type="global" dataNode="dn1,dn2" /> 
+
+
+后端数据准备
+mysql -S /data/3307/mysql.sock 
+use test
+create table t_area (id int not null primary key auto_increment,name varchar(20) not null);
+
+mysql -S /data/3308/mysql.sock 
+use test
+create table t_area  (id int not null primary key auto_increment,name varchar(20) not null);
+
+重启mycat 
+mycat restart 
+
+
+测试： 
+mysql -uroot -p123456 -h10.0.0.52 -P8066
+
+use TESTDB
+insert into t_area(id,name) values(1,'a');
+insert into t_area(id,name) values(2,'b');
+insert into t_area(id,name) values(3,'c');
+insert into t_area(id,name) values(4,'d');
+
+
+
+17. E-R分片
+
+为了防止跨分片join，可以使用E-R模式
+
+A   join   B
+on  a.xx=b.xx
+join C
+on A.id=C.id
+
+<table name="A" dataNode="dn1,dn2" rule="mod-long"> 
+       <childTable name="B" joinKey="id" parentKey="id" /> 
+</table> 
+
+
+select ci.name,co.name,ci.countrycode,ci.population  from city_new as ci join country_new as co on ci.countrycode=co.code where ci.population<100
+
+
+
+
+重启mycat 
+
+mycat restart
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

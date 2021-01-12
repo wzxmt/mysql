@@ -1,0 +1,409 @@
+
+====================================老男孩Linux运维-上海2期-MySQL-day04===================================
+
+上周回顾:
+
+MySQL 简介
+DBMS:
+ RDBMS: Oracle  MySQL  MSSQL  PG
+ NoSQL: Mongodb Redis  ES   Memcached  HBASE
+
+版本选择:
+	5.6   5.7  
+	GA    6-12
+5.6.34   5.6.36   5.6.38 
+5.7.18  5.7.20    5.7.22
+
+安装方式:
+rpm
+二进制(解压就能用)
+源码(大企业,有二次开发能)
+cmake   make   make  install
+
+MySQL 安装
+cmake   
+make   
+make  install
+5.6:
+scripts/mysql_install_db  --user  --basedir --datadir
+5.7中:
+bin/mysqld   --initialize-insecure --user  --basedir --datadir 
+
+MySQL 基本配置
+1.无用的用户清理
+2.简单改了下密码
+3.简单的配置文件
+
+MySQL 体系结构
+1.CS客户端服务器端模型
+TCPIP
+mysql -uroot -p -h 10.0.0.51 -P3306 
+ 
+Socket
+mysql -uroot -p -S /tmp/mysql.sock
+
+2.实例
+mysqld   ---->  master thread   ----> 工作线程----->专用内存区域
+
+
+3. mysqld
+一条SQL的基本处理过程
+连接层
+SQL层
+存储引擎层
+
+4. 启动关闭流程
+mysql.server     mysqld_safe   mysqld 
+
+
+sys-v
+service mysqld  start
+5.7 ----> boost
+
+systemd
+mysqld       ---->   systemctl   
+
+
+
+5. 初始化配置
+预编译
+配置文件
+命令行
+
+/etc/my.cnf  /etc/mysql/my.cnf  /etc/my.cnf.d/     /安装路径/etc/my.cnf    ~/.my.cnf
+
+mysqld_safe    --defaults-file=/tmp/a.cnf
+
+[标签]
+xxx
+[标签]
+xxx
+
+vim /etc/my.cnf 
+
+[mysqld]
+
+[mysql]
+
+6. 多实例
+
+
+MySQL 基础管理
+
+1.用户与权限
+(1)开发人员找你要权限,怎么沟通
+从哪登录
+操作对象
+权限:   select  update   insert
+(2)开发找你要root用户
+
+2.连接管理
+
+
+MySQL SQL基础应用
+
+======================
+外链接:
+
+A  left join B
+on A.id=B.id
+and 
+
+oldguo 老师教了几门课
+
+select t.tname ,c.cname 
+from teacher as t 
+join course as  c
+on  t.tno=c.tno 
+where t.tname='oldguo'  
+
+right join on
+
+====================================
+子查询(尽量能不用则不用,性能比较差):
+
+select id  from city where countrycode='CHN'
+
+1. 作为from的条件
+2. 做为where的条件
+
+
+
+select  列名字
+from  表
+join 表
+on  列=列
+where 列条件 
+group by  列名
+order by  列名
+limit   范围
+
+
+select  countrycode  from city where population<100
+
+PCN
+
+select name from country where code=(select  countrycode  from city where population<100);
+
+select co.name from country as co 
+join city as ci
+on co.code=ci.countrycode 
+where ci.population<100
+
+
+
+SELECT TR.TRANSACT_TYPE, TR.JOB_TYPE, CM.PRODUCT_GRP,                                
+SUM(TR.TOT_LAB_COST + TR.TOT_LAB_BUR1 + TR.TOT_MATL_COST + TR.TOT_VEND_L_COST) AS TR_SUM_COST,                                
+COUNT(*)                                
+  FROM INTRNS TR,                                 
+(SELECT CODE, DATA2 AS PRODUCT_GRP FROM CMCDMS                                 
+WHERE CODE_ITEM_NO = '101') CM                                
+WHERE TR.PRODUCT_CODE = CM.CODE                                
+AND TR.TRANSACT_DATE LIKE '201204%'                                
+AND TR.TRANSACT_TYPE IN ('P')        
+AND TR.JOB_NO IS NULL        
+GROUP BY TR.TRANSACT_TYPE, TR.JOB_TYPE, CM.PRODUCT_GRP 使用在from后面的例子
+
+
+
+SELECT TR.TRANSACT_TYPE, TR.JOB_TYPE, CM.PRODUCT_GRP,                                
+SUM(TR.TOT_LAB_COST + TR.TOT_LAB_BUR1 + TR.TOT_MATL_COST + TR.TOT_VEND_L_COST) AS TR_SUM_COST,                                
+COUNT(*)                                
+FROM INTRNS TR 
+join CM                                
+on  TR.PRODUCT_CODE = CM.CODE                                
+where TR.TRANSACT_DATE LIKE '201204%'                                
+AND TR.TRANSACT_TYP='P'       
+AND TR.JOB_NO IS NULL        
+GROUP BY TR.TRANSACT_TYPE, TR.JOB_TYPE, CM.PRODUCT_GRP 
+
+union all 
+
+SELECT TR.TRANSACT_TYPE, TR.JOB_TYPE, CM.PRODUCT_GRP,                                
+SUM(TR.TOT_LAB_COST + TR.TOT_LAB_BUR1 + TR.TOT_MATL_COST + TR.TOT_VEND_L_COST) AS TR_SUM_COST,                                
+COUNT(*)                                
+FROM INTRNS TR 
+join CM                                
+on  TR.PRODUCT_CODE = CM.CODE                                
+where TR.TRANSACT_DATE LIKE '201204%'                                
+AND TR.TRANSACT_TYP='Q'       
+AND TR.JOB_NO IS NULL        
+GROUP BY TR.TRANSACT_TYPE, TR.JOB_TYPE, CM.PRODUCT_GRP 
+
+
+使用在from后面的例子
+
+==========================================================
+
+Information_schema 用来获取更加元数据
+
+表:  表名,列,表属性 ,数据行
+  
+数据行:表                      文件内容(block)
+元数据:基表(元数据表)          inode
+
+DDL 间接修改是元数据
+
+通过一些专用的show 命令
+
+视图:
+
+create view test as 
+SELECT TR.TRANSACT_TYPE, TR.JOB_TYPE, CM.PRODUCT_GRP,                                
+SUM(TR.TOT_LAB_COST + TR.TOT_LAB_BUR1 + TR.TOT_MATL_COST + TR.TOT_VEND_L_COST) AS TR_SUM_COST,                                
+COUNT(*)                                
+  FROM INTRNS TR,                                 
+(SELECT CODE, DATA2 AS PRODUCT_GRP FROM CMCDMS                                 
+WHERE CODE_ITEM_NO = '101') CM                                
+WHERE TR.PRODUCT_CODE = CM.CODE                                
+AND TR.TRANSACT_DATE LIKE '201204%'                                
+AND TR.TRANSACT_TYPE IN ('P')        
+AND TR.JOB_NO IS NULL        
+GROUP BY TR.TRANSACT_TYPE, TR.JOB_TYPE, CM.PRODUCT_GRP;
+
+
+================================
+information_schema.tables    --->记录的是,MySQL中所有表的属性信息
+desc tables;
+ 
+TABLE_SCHEMA      -->表所在的库
+TABLE_NAME        -->表名字
+ENGINE            -->表的引擎
+TABLE_ROWS        -->表的行数
+AVG_ROW_LENGTH    -->平均行长度
+INDEX_LENGTH      -->索引长度
+
+例子:
+1. 查询下所有的库及表的信息
+
+select table_schema,table_name from information_schema.tables;
+
+2. 统计一下每个库下表的个数
+
+select table_schema,count(table_name)  from  information_schema.tables group by table_schema;
+
+3. 统计school数据库下的所有表的行数信息
+select table_name,table_rows  from information_schema.tables where table_schema='school';
+
+
+4. 统计每个数据库的数据量  *************************
+库=sum(每行数据量*行数+索引长度)/1024 
+表数据量=每行数据量*行数+索引长度
+
+库数据量=sum(每行数据量*行数+索引长度)/1024 
+
+select table_schema,sum(AVG_ROW_LENGTH*TABLE_ROWS +INDEX_LENGTH)/1024 as size_kb  
+from information_schema.tables 
+group by  table_schema ;
+
+5.总数据量  ****************
+select sum(AVG_ROW_LENGTH*TABLE_ROWS +INDEX_LENGTH)/1024 as size_kb   
+from 
+information_schema.tables;
+
+6. 查询所有Innodb的表
+select table_schema,table_name ,engine 
+from information_schema.tables 
+where engine='innodb';
+
+7.要把zabbix库下的所有表引擎(innodb)替换为Tokudb    ****************
+alter  table zabbix.t1 engine=tokudb;
+alter  table world.t2 engine=tokudb;
+alter  table app.t3 engine=tokudb;
+
+select  concat("不变的值",可变值,"不变的值",)
+
+
+将school数据库下的表的engine 替换为myisam;
+
+select concat("alter table ",table_schema,".",table_name," engine=myisam;") from information_schema.tables where table_schema='school';
+
+107张表都要执行以下命令,怎么实现 ******************
+alter  table world.city discard tablespace;
+select concat("alter table ",table_schema,".",table_name," discard tablespace;") from information_schema.tables where table_schema='school';
+
+alter  table world.city import tablespace;
+select concat("alter table ",table_schema,".",table_name," import tablespace;") from information_schema.tables where table_schema='school';
+
+
+将上述结果导出到sql文件
+select concat("alter table ",table_schema,".",table_name," discard tablespace;") from information_schema.tables where table_schema='school' into outfile '/tmp/discard.sql';
+
+注意:
+安全路径设置
+ERROR 1290 (HY000): The MySQL server is running with the --secure-file-priv option so it cannot execute this statement
+处理方法:
+vim /etc/my.cnf 
+secure-file-priv=/tmp
+重启数据库生效
+
+====================
+常用show语句的使用***************************:
+
+show databases;                --->查看所有的数据库
+show tables;                   --->查看当前所use到的数据库
+show tables from world;        --->查看指定库下的表
+show table status from world\G --->看world库下的所有表的详细属性
+show table status from world like 'city';   --->看world库下的city表的详细属性
+show create database world;    ---->查看建库的语句
+show create table world.city;  ---->查看建表语句
+desc city;                     ---->查看列的基本信息
+show charset;                  ---->查看所有的字符集
+show collation;                ---->查看所有支持的校对规则
+
+后面课程会用到的:
+show index from stu;
+show engines;				   ---->查看所有存储引擎
+show status;                   ---->所有数据库状态情况
+show variables;                ---->查看所有的参数信息.
+show processlist;			   ---->查看所有的连接情况
+show engine innodb status \G   ---->innodb存储详细状态
+
+select current_user()
+select user();
+
+==========
+中级课程:MySQL中的最核心的内容
+
+索引管理及原理
+1.索引的种类
+B树(b-tree B+tree B*tree)
+R树
+Hash索引
+全文索引
+
+2.B树索引的类型
+聚簇索引(cluster index):一般是基于主键的
+辅助索引(普通辅助索引:回表查询;覆盖索引:不回表查询)
+唯一键索引
+
+3.索引作用:
+在数据库中,索引是用来优化查询
+排除缓存之外,数据的查询:
+	(1)全表扫描
+	(2)索引扫描
+
+4.索引管理
+在stu表基于sname建立索引
+alter  table 表名 add  index 索引名(列名)
+
+alter table stu add index idx_name(sname);
+或者:
+create index idx_name on stu(sname);
+
+删除索引:
+alter table stu drop index idx_name;
+
+查看索引情况:
+desc stu;
+show index from stu\G
+
+联合索引创建:
+alter table city add index idx_co_po(countrycode,population);
+
+前缀索引:
+alter table city add index idx_dis(district(10));
+
+
+
+
+
+分析SQL执行计划
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+存储引擎管理
+日志管理
+备份恢复
+主从复制
+
+高级部分
+高可用及读写分离
+分布式系统
+优化
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,778 @@
+redis : 
+1.缓存产品
+2.memcached和redis区别
+3.安全模式
+bind   requirepass
+4.持久化及区别
+rdb:
+aof:
+5.数据类型
+string  
+hash   
+list  
+set  
+sorted set
+==========
+
+
+----------------
+发布订阅
+PUBLISH channel msg
+	将信息 message 发送到指定的频道 channel
+SUBSCRIBE channel [channel ...]
+	订阅频道，可以同时订阅多个频道
+UNSUBSCRIBE [channel ...]
+	取消订阅指定的频道, 如果不指定频道，则会取消订阅所有频道
+PSUBSCRIBE pattern [pattern ...]
+	订阅一个或多个符合给定模式的频道，每个模式以 * 作为匹配符，比如 it* 匹配所	有以 it 开头的频道( it.news 、 it.blog 、 it.tweets 等等)， news.* 匹配所有	以 news. 开头的频道( news.it 、 news.global.today 等等)，诸如此类
+PUNSUBSCRIBE [pattern [pattern ...]]
+	退订指定的规则, 如果没有参数则会退订所有规则
+PUBSUB subcommand [argument [argument ...]]
+	查看订阅与发布系统状态
+注意：使用发布订阅模式实现的消息队列，当有客户端订阅channel后只能收到后续发布到该频道的消息，之前发送的不会缓存，必须Provider和Consumer同时在线。
+
+发布订阅例子：
+
+窗口1：
+
+127.0.0.1:6379> SUBSCRIBE baodi 
+
+窗口2：
+
+127.0.0.1:6379> PUBLISH baodi "jin tian zhen kaixin!"
+
+订阅多频道：
+窗口1：
+127.0.0.1:6379> PSUBSCRIBE wang*
+窗口2：
+127.0.0.1:6379> PUBLISH wangbaoqiang "jintian zhennanshou "
+
+---------------
+7、Redis事务
+
+redis的事务是基于队列实现的。
+mysql的事务是基于事务日志实现的。
+
+
+开启事务功能时（multi）
+multi 
+command1      
+command2
+command3
+command4
+
+4条语句作为一个组，并没有真正执行，而是被放入同一队列中。
+如果，这是执行discard，会直接丢弃队列中所有的命令，而不是做回滚。
+
+exec
+当执行exec时，对列中所有操作，要么全成功要么全失败
+
+
+----------
+127.0.0.1:6379> set a b
+OK
+127.0.0.1:6379> MULTI
+OK
+127.0.0.1:6379> set a b
+QUEUED
+127.0.0.1:6379> set c d
+QUEUED
+127.0.0.1:6379> exec
+1) OK
+2) OK
+
+--------------------
+8、redis乐观锁实现（模拟买票）
+发布一张票
+set ticket 1
+
+窗口1：
+watch ticket
+10.0.0.51:6379> WATCH ticket
+OK
+10.0.0.51:6379> multi 
+OK
+10.0.0.51:6379> set ticket 0
+QUEUED
+10.0.0.51:6379> exec
+(nil)
+
+窗口2：
+10.0.0.51:6379> watch ticket
+OK
+10.0.0.51:6379> multi
+OK
+10.0.0.51:6379> set ticket 1
+QUEUED
+10.0.0.51:6379> exec
+1) OK
+10.0.0.51:6379> get ticket
+"1"
+
+窗口1：
+exec
+
+
+---------------
+9、 服务器管理命令
+Info:
+info memory    
+config set maxmemory 1G
+info replication  
+(master-slave   将 master-slave 架构的描述改为 master-replica)
+为 SLAVEOF 提供别名 REPLICAOF，所以仍然可以使用 SLAVEOF，但多了一个选项
+保持继续使用 slave 来对 INFO 和 ROLE 进行回应，现在目前看来，这仍然是一个重大的破坏性变更
+Clinet list
+Client kill ip:port
+config get *
+CONFIG RESETSTAT 重置统计
+CONFIG GET/SET 动态修改
+Dbsize
+FLUSHALL 清空所有数据 (危险)
+select 1
+FLUSHDB 清空当前库
+MONITOR 监控实时指令
+SHUTDOWN 关闭服务器
+
+关闭数据库：
+redis-cli -a root shutdown
+
+
+info memory    
+info replication  
+CONFIG GET
+CONFIG SET
+SHUTDOWN 
+
+
+------------------
+10、redis（master-replicaset）
+
+原理：
+1. 从服务器开启主从功能时,向主服务器发送 SYNC 命令。(1.第一次启动主从时2.重新建立连接时)
+2. 接到 SYNC 命令的主服务器会调用BGSAVE 命令，创建一个 RDB 文件，发送给从库.
+主服务器会将,缓冲区记录接下来执行的所有写命令,再次传送给从。
+3. 当主服务器执行完 BGSAVE 命令时，它会向从服务器发送 RDB 文件，而从服务器则会接收并载入这个文件。
+到这步位置,主从服务已经构建好.
+4. 主服务器将缓冲区储存的所有写命令（广播形式）发送给从服务器执行。
+
+
+-------------
+1、在开启主从复制的时候，使用的是RDB方式的，同步主从数据的
+2、同步开始之后，通过主库命令传播的方式，主动的复制方式实现
+3、2.8以后实现PSYNC的机制，实现断线重连
+
+-----------------------------
+
+主从数据一致性保证：
+min-slaves-to-write 2
+min-slaves-max-lag  
+
+
+这个特性的运作原理：
+从服务器以每秒一次的频率 PING 主服务器一次， 并报告复制流的处理情况。
+主服务器会记录各个从服务器最后一次向它发送 PING 的时间。
+
+用户可以通过配置， 指定网络延迟的最大值 min-slaves-max-lag ，
+
+以及执行写操作所需的至少从服务器数量 min-slaves-to-write 。
+
+如果至少有 min-slaves-to-write 个从服务器， 并且这些服务器的延迟值都少于 min-slaves-max-lag秒，
+
+那么主服务器就会执行客户端请求的写操作。
+
+
+
+你可以将这个特性看作 CAP 理论中的 C 的条件放宽版本： 尽管不能保证写操作的持久性， 
+但起码丢失数据的窗口会被严格限制在指定的秒数中。
+
+另一方面， 如果条件达不到 min-slaves-to-write 和 min-slaves-max-lag 所指定的条件， 那么写操作就不会被执行
+主服务器会向请求执行写操作的客户端返回一个错误。
+
+---------------------
+主库是否要开启持久化？
+如果不开有可能，主库重启操作，造成所有主从数据丢失！
+---------------------
+主从复制实现：
+
+1、环境：
+准备两个或两个以上redis实例
+
+mkdir /data/638{0..2}
+
+配置文件示例：
+vim   /data/6380/redis.conf
+port 6380
+daemonize yes
+pidfile /data/6380/redis.pid
+loglevel notice
+logfile "/data/6380/redis.log"
+dbfilename dump.rdb
+dir /data/6380
+requirepass 123
+masterauth 123
+
+
+
+vim   /data/6381/redis.conf
+port 6381
+daemonize yes
+pidfile /data/6381/redis.pid
+loglevel notice
+logfile "/data/6381/redis.log"
+dbfilename dump.rdb
+dir /data/6381
+requirepass 123
+masterauth 123
+
+
+
+vim   /data/6382/redis.conf
+port 6382
+daemonize yes
+pidfile /data/6382/redis.pid
+loglevel notice
+logfile "/data/6382/redis.log"
+dbfilename dump.rdb
+dir /data/6382
+requirepass 123
+masterauth 123
+
+
+启动：
+redis-server /data/6380/redis.conf
+redis-server /data/6381/redis.conf
+redis-server /data/6382/redis.conf
+
+
+主节点：6380
+从节点：6381、6382
+
+
+2、开启主从：
+6381/6382命令行:
+
+redis-cli -p 6381 -a 123
+SLAVEOF 127.0.0.1 6380
+
+redis-cli -p 6382 -a 123
+SLAVEOF 127.0.0.1 6380
+
+
+3、查询主从状态
+ redis-cli -p 6380 -a 123 info replication
+ redis-cli -p 6381 -a 123 info replication
+ redis-cli -p 6382 -a 123 info replication
+
+ 
+
+4、从库切为主库
+
+模拟主库故障
+redis-cli -p 6380 -a 123 shutdown
+
+redis-cli -p 6381 -a 123
+info replication
+slaveof no one
+
+6382连接到6381：
+[root@db03 ~]# redis-cli -p 6382 -a 123
+127.0.0.1:6382> SLAVEOF no one
+127.0.0.1:6382> SLAVEOF 127.0.0.1 6381
+
+
+
+redis-sentinel（哨兵）
+
+1、监控
+2、自动选主，切换（6381 slaveof no one）
+3、2号从库（6382）指向新主库（6381）
+4、应用透明 
+
+-------------
+sentinel搭建过程
+
+mkdir /data/26380
+cd /data/26380
+
+vim sentinel.conf
+port 26380
+dir "/data/26380"
+sentinel monitor mymaster 127.0.0.1 6381 1
+sentinel down-after-milliseconds mymaster 5000
+sentinel auth-pass mymaster 123 
+
+
+
+
+
+启动：
+redis-sentinel /data/26380/sentinel.conf &
+
+
+==============================
+如果有问题：
+1、重新准备1主2从环境
+2、kill掉sentinel进程
+3、删除sentinel目录下的所有文件
+4、重新搭建sentinel
+======================================
+
+停主库测试：
+
+[root@db01 ~]# redis-cli -p 6380
+shutdown
+
+[root@db01 ~]# redis-cli -p 6381
+info replication
+
+启动源主库（6380），看状态。
+
+Sentinel管理命令：
+
+
+redis-cli -p 26380
+
+PING ：返回 PONG 。
+SENTINEL masters ：列出所有被监视的主服务器
+SENTINEL slaves <master name> 
+SENTINEL get-master-addr-by-name <master name> ： 返回给定名字的主服务器的 IP 地址和端口号。 
+SENTINEL reset <pattern> ： 重置所有名字和给定模式 pattern 相匹配的主服务器。 
+SENTINEL failover <master name> ： 当主服务器失效时， 在不询问其他 Sentinel 意见的情况下， 强制开始一次自动故障迁移。
+
+
+mkdir /data/26381
+cd /data/26381
+
+vim sentinel.conf
+port 26381
+dir "/data/26381"
+sentinel monitor mymaster 127.0.0.1 6382 2
+sentinel down-after-milliseconds mymaster 5000
+sentinel auth-pass mymaster 123 
+
+
+
+
+----------------------------
+
+redis cluster
+
+
+高性能：
+
+1、在多分片节点中，将16384个槽位，均匀分布到多个分片节点中
+2、存数据时，将key做crc16(key),然后和16384进行取模，得出槽位值（0-16383之间）
+3、根据计算得出的槽位值，找到相对应的分片节点的主节点，存储到相应槽位上
+4、如果客户端当时连接的节点不是将来要存储的分片节点，分片集群会将客户端连接切换至真正存储节点进行数据存储
+
+高可用：
+在搭建集群时，会为每一个分片的主节点，对应一个从节点，实现slaveof的功能，同时当主节点down，实现类似于sentinel的自动failover的功能。
+
+
+1、redis会有多组分片构成（3组）
+2、redis cluster 使用固定个数的slot存储数据（一共16384slot）
+3、每组分片分得1/3 slot个数（0-5500  5501-11000  11001-16383）
+4、基于CRC16(key) % 16384 ====》值 （槽位号）。
+
+规划、搭建过程：
+
+6个redis实例，一般会放到3台硬件服务器
+注：在企业规划中，一个分片的两个分到不同的物理机，防止硬件主机宕机造成的整个分片数据丢失。
+
+
+
+端口号：7000-7005
+
+1、安装集群插件
+EPEL源安装ruby支持
+yum install ruby rubygems -y
+
+使用国内源
+gem sources -l
+gem sources -a http://mirrors.aliyun.com/rubygems/ 
+gem sources  --remove https://rubygems.org/
+gem sources -l
+gem install redis -v 3.3.3
+
+或者：
+gem sources -a http://mirrors.aliyun.com/rubygems/  --remove https://rubygems.org/ 
+
+---
+2、集群节点准备
+
+mkdir /data/700{0..7}
+
+vim /data/7000/redis.conf
+port 7000
+daemonize yes
+pidfile /data/7000/redis.pid
+loglevel notice
+logfile "/data/7000/redis.log"
+dbfilename dump.rdb
+dir /data/7000
+protected-mode no
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+
+
+vim /data/7001/redis.conf
+port 7001
+daemonize yes
+pidfile /data/7001/redis.pid
+loglevel notice
+logfile "/data/7001/redis.log"
+dbfilename dump.rdb
+dir /data/7001
+protected-mode no
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+
+
+vim /data/7002/redis.conf
+port 7002
+daemonize yes
+pidfile /data/7002/redis.pid
+loglevel notice
+logfile "/data/7002/redis.log"
+dbfilename dump.rdb
+dir /data/7002
+protected-mode no
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+
+
+
+vim /data/7003/redis.conf
+port 7003
+daemonize yes
+pidfile /data/7003/redis.pid
+loglevel notice
+logfile "/data/7003/redis.log"
+dbfilename dump.rdb
+dir /data/7003
+protected-mode no
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+
+
+
+vim /data/7004/redis.conf
+port 7004
+daemonize yes
+pidfile /data/7004/redis.pid
+loglevel notice
+logfile "/data/7004/redis.log"
+dbfilename dump.rdb
+dir /data/7004
+protected-mode no
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+
+
+vim /data/7005/redis.conf
+port 7005
+daemonize yes
+pidfile /data/7005/redis.pid
+loglevel notice
+logfile "/data/7005/redis.log"
+dbfilename dump.rdb
+dir /data/7005
+protected-mode no
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+
+
+
+vim /data/7006/redis.conf
+port 7006
+daemonize yes
+pidfile /data/7006/redis.pid
+loglevel notice
+logfile "/data/7006/redis.log"
+dbfilename dump.rdb
+dir /data/7006
+protected-mode no
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+
+
+vim /data/7007/redis.conf
+port 7007
+daemonize yes
+pidfile /data/7007/redis.pid
+loglevel notice
+logfile "/data/7007/redis.log"
+dbfilename dump.rdb
+dir /data/7007
+protected-mode no
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+
+
+启动节点：
+
+redis-server /data/7000/redis.conf 
+redis-server /data/7001/redis.conf 
+redis-server /data/7002/redis.conf 
+redis-server /data/7003/redis.conf 
+redis-server /data/7004/redis.conf 
+redis-server /data/7005/redis.conf 
+redis-server /data/7006/redis.conf 
+redis-server /data/7007/redis.conf 
+
+
+[root@db01 ~]# ps -ef |grep redis
+
+
+3、将节点加入集群管理
+
+redis-trib.rb create --replicas 1 127.0.0.1:7000 127.0.0.1:7001 \
+127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005
+
+
+4、集群状态查看
+
+集群主节点状态
+redis-cli -p 7000 cluster nodes | grep master
+集群从节点状态
+redis-cli -p 7000 cluster nodes | grep slave
+
+5、集群节点管理
+
+5.1 添加主节点：
+redis-trib.rb add-node 127.0.0.1:7006 127.0.0.1:7000
+
+5.2 添加一个从节点
+redis-trib.rb add-node --slave --master-id 7d18a15e6fae526c4109ab02c43b3935e04dfc24 127.0.0.1:7007 127.0.0.1:7000
+
+注意:
+--master-id 一定是查询出来,每个人都不一样
+redis-cli -p 7000 cluster nodes | grep master
+
+
+5.3 转移slot（重新分片）
+redis-trib.rb reshard 127.0.0.1:7000
+
+
+
+6.删除节点
+
+6.1 将需要删除节点slot移动走
+redis-trib.rb reshard 127.0.0.1:7000
+
+slots:0-1364 ,5461-6826,10923-12287
+1365    1366     1365
+
+6.2 删除一个节点
+删除master节点之前首先要使用reshard移除master的全部slot,然后再删除当前节点
+redis-trib.rb del-node 127.0.0.1:7006 7d18a15e6fae526c4109ab02c43b3935e04dfc24
+redis-trib.rb del-node 127.0.0.1:7007 5c91c60d48864f7db99273db42c6f3eebd5500a6
+
+======================
+
+重新演示一遍添加删除节点:
+redis-cli -p 7006 shutdown 
+redis-cli -p 7007 shutdown
+rm -rf /data/7006/*  /data/7007/*
+
+vim /data/7006/redis.conf
+port 7006
+daemonize yes
+pidfile /data/7006/redis.pid
+loglevel notice
+logfile "/data/7006/redis.log"
+dbfilename dump.rdb
+dir /data/7006
+protected-mode no
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+
+
+vim /data/7007/redis.conf
+port 7007
+daemonize yes
+pidfile /data/7007/redis.pid
+loglevel notice
+logfile "/data/7007/redis.log"
+dbfilename dump.rdb
+dir /data/7007
+protected-mode no
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+
+
+redis-server /data/7006/redis.conf 
+redis-server /data/7007/redis.conf 
+ps -ef |grep redis
+
+1.添加节点:
+1.1 添加主节点：
+redis-trib.rb add-node 127.0.0.1:7006 127.0.0.1:7000
+
+5.3 转移slot（重新分片）
+redis-trib.rb reshard 127.0.0.1:7000
+redis-cli -p 7000 cluster nodes | grep 7006
+464904e183fdb144a7c3c050a5c5ddfe52f4d212 127.0.0.1:7006 master - 0 1543566666420 0 connected
+
+1.2 添加一个从节点
+redis-trib.rb add-node --slave --master-id 464904e183fdb144a7c3c050a5c5ddfe52f4d212 127.0.0.1:7007 127.0.0.1:7000
+
+注意:
+--master-id 一定是查询出来,每个人都不一样
+redis-cli -p 7000 cluster nodes | grep master
+
+
+1.3 转移slot（重新分片）
+redis-trib.rb reshard 127.0.0.1:7000
+
+2. 删除节点
+2.1 转移slot（重新分片）
+redis-trib.rb reshard 127.0.0.1:7000
+
+2.2 删除一个节点
+删除master节点之前首先要使用reshard移除master的全部slot,然后再删除当前节点
+redis-trib.rb del-node 127.0.0.1:7006 464904e183fdb144a7c3c050a5c5ddfe52f4d212
+redis-trib.rb del-node 127.0.0.1:7007 fa3ea72241d383a09205b2b5c55472453482bfe1
+---------------------
+设置redis最大内存
+config set maxmemory 102400000
+---------------------
+
+========================================
+
+redis的多API支持
+
+python为例
+
+tar xf Python-3.5.2.tar.xz 
+cd  Python-3.5.2
+./configure
+make && make install
+
+
+https://redis.io/clients
+
+下载redis-py-master.zip
+
+
+安装驱动：
+
+unzip redis-py-master.zip
+
+cd redis-py-master
+python3 setup.py install
+
+
+安装redis-cluser的客户端程序
+
+cd redis-py-cluster-unstable
+python3 setup.py install
+
+
+
+1、对redis的单实例进行连接操作
+
+python3
+>>>import redis
+>>>r = redis.StrictRedis(host='localhost', port=6379, db=0,password='123')
+>>>r.set('name', 'oldguo')
+True
+>>>r.get('name')
+'oldguo'
+
+
+--------------------
+
+2、sentinel集群连接并操作
+
+
+[root@db01 ~]# redis-server /data/6380/redis.conf
+[root@db01 ~]# redis-server /data/6381/redis.conf
+[root@db01 ~]# redis-server /data/6382/redis.conf 
+[root@db01 ~]# redis-sentinel /data/26380/sentinel.conf &
+
+
+--------------------------------
+## 导入redis sentinel包
+>>>from redis.sentinel import Sentinel  
+##指定sentinel的地址和端口号
+>>> sentinel = Sentinel([('localhost', 26380)], socket_timeout=0.1)  
+##测试，获取以下主库和从库的信息
+>>> sentinel.discover_master('mymaster')  
+>>> sentinel.discover_slaves('mymaster')  
+
+##配置读写分离
+#写节点
+>>> master = sentinel.master_for('mymaster', socket_timeout=0.1,password="123")  
+#读节点
+>>> slave = sentinel.slave_for('mymaster', socket_timeout=0.1,password="123")  
+###读写分离测试   key     
+>>> master.set('oldboy', '123')  
+>>> slave.get('oldboy')  
+'123'
+
+
+
+
+----------------------
+redis cluster的连接并操作（python2.7.2以上版本才支持redis cluster，我们选择的是3.5）
+https://github.com/Grokzen/redis-py-cluster
+
+3、python连接rediscluster集群测试
+使用
+
+python3
+>>> from rediscluster import StrictRedisCluster  
+>>> startup_nodes = [{"host": "127.0.0.1", "port": "7000"}]  
+### Note: decode_responses must be set to True when used with python3  
+>>> rc = StrictRedisCluster(startup_nodes=startup_nodes, decode_responses=True)  
+>>> rc.set("foo", "bar")  
+True  
+>>> print(rc.get("foo"))  
+'bar'
+
+-----------------------------------------------
+缓存穿透
+概念
+访问一个不存在的key，缓存不起作用，请求会穿透到DB，流量大时DB会挂掉。
+
+解决方案
+采用布隆过滤器，使用一个足够大的bitmap，用于存储可能访问的key，不存在的key直接被过滤；
+访问key未在DB查询到值，也将空值写进缓存，但可以设置较短过期时间。
+
+缓存雪崩
+概念
+大量的key设置了相同的过期时间，导致在缓存在同一时刻全部失效，造成瞬时DB请求量大、压力骤增，引起雪崩。
+
+解决方案
+可以给缓存设置过期时间时加上一个随机值时间，使得每个key的过期时间分布开来，不会集中在同一时刻失效。
+
+缓存击穿
+概念
+一个存在的key，在缓存过期的一刻，同时有大量的请求，这些请求都会击穿到DB，造成瞬时DB请求量大、压力骤增。
+
+解决方案
+在访问key之前，采用SETNX（set if not exists）来设置另一个短期key来锁住当前key的访问，访问结束再删除该短期key。
+
+-----------------------------------

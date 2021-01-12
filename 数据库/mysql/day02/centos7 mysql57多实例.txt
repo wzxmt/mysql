@@ -1,0 +1,184 @@
+单实例：
+wget -O /etc/yum.repos.d/CentOS-Base.repo http://mirrors.aliyun.com/repo/Centos-7.repo
+mkdir -p /data/mysql/data/
+
+vim /etc/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/mysql
+socket=/data/mysql/mysql.sock
+port=3306
+log-error=/data/mysql/mysql.log
+log_bin=/data/mysql/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=6
+[mysql]
+socket=/data/mysql/mysql.sock
+prompt="\\gjl [\\d]>
+
+hown -R mysql.mysql /data/*
+
+mysqld --initialize-insecure  --user=mysql --basedir=/usr/local/mysql --datadir=/data/mysql/data
+chown -R mysql.mysql /data/*
+
+单节点mysqld使用systemd管理
+vim /etc/systemd/system/mysqld.service
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/etc/my.cnf
+LimitNOFILE = 5000
+
+使用systmd管理mysql5.7
+systemctl enable mysqld.service
+systemctl start mysqld
+systemctl status mysqld
+
+
+多实例：
+
+创建相应目录：
+mkdir -p /data/3307/data
+mkdir -p /data/3308/data
+mkdir -p /data/3309/data
+
+编辑配置文件
+vim /data/3307/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3307/data
+socket=/data/3307/mysql.sock
+port=3307
+log-error=/data/3307/mysql.log
+log_bin=/data/3307/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=7
+[mysql]
+socket=/data/3307/mysql.sock
+prompt="\\gjl [\\d]>
+
+vim /data/3308/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3308/data
+socket=/data/3308/mysql.sock
+port=3308
+log-error=/data/3308/mysql.log
+log_bin=/data/3308/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=8
+[mysql]
+socket=/data/3308/mysql.sock
+prompt="\\gjl [\\d]>
+
+vim /data/3309/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3309/data
+socket=/data/3309/mysql.sock
+port=3309
+log-error=/data/3309/mysql.log
+log_bin=/data/3309/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=9
+[mysql]
+socket=/data/3309/mysql.sock
+prompt="\\gjl [\\d]>
+
+
+------------------
+初始化三套数据：
+chown -R mysql.mysql /data/330*
+mysqld --initialize-insecure  --user=mysql --basedir=/usr/local/mysql --datadir=/data/3307/data
+mysqld --initialize-insecure  --user=mysql --basedir=/usr/local/mysql --datadir=/data/3308/data
+mysqld --initialize-insecure  --user=mysql --basedir=/usr/local/mysql --datadir=/data/3309/data
+
+修改权限：
+touch /data/330{7..9}/mysql.log
+chown -R mysql.mysql /data/330*
+
+vim /etc/systemd/system/mysql3307.service
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3307/my.cnf
+LimitNOFILE = 5000
+
+vim /etc/systemd/system/mysql3308.service
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3308/my.cnf
+LimitNOFILE = 5000
+
+vim /etc/systemd/system/mysql3309.service
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3309/my.cnf
+LimitNOFILE = 5000
+
+配置systemd
+systemctl enable mysql3307.service
+systemctl enable mysql3308.service
+systemctl enable mysql3309.service
+systemctl start  mysql3307
+systemctl start  mysql3308
+systemctl start  mysql3309
+systemctl status  mysql3307
+systemctl status  mysql3308
+systemctl status  mysql3309
+
+
+验证：
+netstat -lnp|grep 330
+
+连接测试：
+
+mysql -S /data/3307/mysql.sock -e "show variables like 'server_id'"
+mysql -S /data/3308/mysql.sock -e "show variables like 'server_id'"
+mysql -S /data/3309/mysql.sock -e "show variables like 'server_id'"
+
+
+prompt="\\u@\\h \\D [\\d]>
+官方多实例：
+
+https://dev.mysql.com/doc/refman/5.7/en/using-systemd.html

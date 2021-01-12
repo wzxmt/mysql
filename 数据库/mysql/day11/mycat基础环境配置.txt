@@ -1,0 +1,488 @@
+
+MyCAT分布式架构应用
+
+1.高性能架构演变
+
+1.1 读写分离:
+优点:对读性能提高很多,代表产品:atlas
+不足:他是不考虑业务的一种架构,对于读操作在理论上可以提升很高性能
+在极端情况下,有可能热点表,只在少量节点被频繁命中.
+对写操作无任何提升.
+
+1.2 传统分布式策略:   
+	代表产品:atlas-sharding 
+	优点:读写性能都进行了提升
+	缺点:无法实现垮分片访问,无法垮分片join
+		 分片策略较少,几乎没有选择性.局限性较大.
+
+1.3 企业级的分布式策略:
+	要达到的目的:
+		1.数据量要均匀
+		2.业务访问要均匀
+		3.高可用策略
+		4.降低耦合*
+		5.具备单节点的所有SQL功能
+		6.可选择多种分片策略
+===================================================
+MyCAT基础架构搭建
+
+架构规划
+
+
+0. 部署5.7.20 二进制包
+解压
+mv mysql-5.7.20-linux-glibc2.12-x86_64 mysql
+chown -R mysql.mysql  /usr/local/mysql
+
+vim /etc/profile
+修改
+export PATH=/usr/local/mysql/bin:$PATH
+source /etc/profile
+
+
+1、环境准备：
+两台虚拟机 db01 db02
+每台创建四个mysql实例：3307 3308 3309 3310
+
+(1)删除历史环境：
+pkill mysqld
+rm -rf /data/330* 
+mv /etc/my.cnf /etc/my.cnf.bak
+
+(2)创建相关目录
+
+mkdir /data/33{07..10}/data -p
+ 
+(3)初始化数据
+
+mysqld --initialize-insecure  --user=mysql --datadir=/data/3307/data --basedir=/usr/local/mysql
+mysqld --initialize-insecure  --user=mysql --datadir=/data/3308/data --basedir=/usr/local/mysql
+mysqld --initialize-insecure  --user=mysql --datadir=/data/3309/data --basedir=/usr/local/mysql
+mysqld --initialize-insecure  --user=mysql --datadir=/data/3310/data --basedir=/usr/local/mysql
+
+
+(4)准备配置文件(注意server_id：51：7,8,9,10，52：17,18,19,20)
+
+vim /data/3307/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3307/data
+socket=/data/3307/mysql.sock
+port=3307
+log-error=/data/3307/mysql.log
+log_bin=/data/3307/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=7
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+
+-----------------------------
+vim /data/3308/my.cnf
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3308/data
+port=3308
+socket=/data/3308/mysql.sock
+log-error=/data/3308/mysql.log
+log_bin=/data/3308/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=8
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+
+------------------
+vim /data/3309/my.cnf
+
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3309/data
+socket=/data/3309/mysql.sock
+port=3309
+log-error=/data/3309/mysql.log
+log_bin=/data/3309/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=9
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+
+vim /data/3310/my.cnf
+
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3310/data
+socket=/data/3310/mysql.sock
+port=3310
+log-error=/data/3310/mysql.log
+log_bin=/data/3310/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=10
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+
+（5）准备启动脚本
+vim /etc/systemd/system/mysqld3307.service 
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3307/my.cnf
+LimitNOFILE = 5000
+
+========================
+#!/bin/bash
+cat >/data/3307/my.cnf<<EOF
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3307/data
+socket=/data/3307/mysql.sock
+port=3307
+log-error=/data/3307/mysql.log
+log_bin=/data/3307/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=17
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+
+cat >/data/3308/my.cnf<<EOF
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3308/data
+port=3308
+socket=/data/3308/mysql.sock
+log-error=/data/3308/mysql.log
+log_bin=/data/3308/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=18
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+
+cat >/data/3309/my.cnf<<EOF
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3309/data
+socket=/data/3309/mysql.sock
+port=3309
+log-error=/data/3309/mysql.log
+log_bin=/data/3309/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=19
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+
+
+cat >/data/3310/my.cnf<<EOF
+
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3310/data
+socket=/data/3310/mysql.sock
+port=3310
+log-error=/data/3310/mysql.log
+log_bin=/data/3310/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=20
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+
+cat >/etc/systemd/system/mysqld3307.service<<EOF
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3307/my.cnf
+LimitNOFILE = 5000
+EOF
+
+cat >/etc/systemd/system/mysqld3308.service<<EOF
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3308/my.cnf
+LimitNOFILE = 5000
+EOF
+
+cat >/etc/systemd/system/mysqld3309.service<<EOF
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3309/my.cnf
+LimitNOFILE = 5000
+EOF
+cat >/etc/systemd/system/mysqld3310.service<<EOF
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3310/my.cnf
+LimitNOFILE = 5000
+EOF
+
+
+（6）修改权限，启动多实例
+
+chown -R mysql.mysql /data/*
+
+systemctl start mysqld3307
+systemctl start mysqld3308
+systemctl start mysqld3309
+systemctl start mysqld3310
+
+
+mysql -S /data/3307/mysql.sock -e "show variables like 'server_id'"
+mysql -S /data/3308/mysql.sock -e "show variables like 'server_id'"
+mysql -S /data/3309/mysql.sock -e "show variables like 'server_id'"
+mysql -S /data/3310/mysql.sock -e "show variables like 'server_id'"
+
+
+(7)节点主从规划：
+
+主从规划（箭头指向谁是主库）
+
+	10.0.0.51:3307    <----->  10.0.0.52:3307
+	10.0.0.51:3309    ------>  10.0.0.51:3307
+	10.0.0.52:3309    ------>  10.0.0.52:3307
+
+
+	10.0.0.52:3308  <----->    10.0.0.51:3308
+	10.0.0.52:3310  ----->	   10.0.0.52:3308
+	10.0.0.51:3310  ----->     10.0.0.51:3308
+
+-----------------------------------------------------
+
+
+节点的多实例配置：
+
+db01:
+10.0.0.51:3307
+
+10.0.0.51:3308
+
+10.0.0.51:3309
+
+10.0.0.51:3310
+
+
+db02:
+10.0.0.52:3307
+
+10.0.0.52:3308
+
+10.0.0.52:3309
+
+10.0.0.52:3310
+
+
+主从规划
+
+shard1：
+	Master：10.0.0.51:3307
+	slave1：10.0.0.51:3309
+	Standby Master：10.0.0.52:3307
+	slave2：10.0.0.52:3309
+	
+	
+	10.0.0.51:3307    <----->  10.0.0.52:3307
+	10.0.0.51:3309    ------>  10.0.0.51:3307
+	10.0.0.52:3309    ------>  10.0.0.52:3307
+
+shard2：
+	Master：10.0.0.52:3308
+	slave1：10.0.0.52:3310
+	Standby Master：10.0.0.51:3308
+	slave2：10.0.0.51:3310
+
+	10.0.0.52:3308  <----->    10.0.0.51:3308
+	10.0.0.52:3310  ----->	   10.0.0.52:3308
+	10.0.0.51:3310  ----->     10.0.0.51:3308
+
+
+
+----------------------------shard1 ---------------------------------------
+===========================================================================
+（1）10.0.0.51:3307    <----->  10.0.0.52:3307	
+10.0.0.51:3307    ----->  10.0.0.52:3307
+
+db02:
+mysql  -S /data/3307/mysql.sock 
+grant replication slave on *.* to repl@'10.0.0.%' identified by '123';
+
+db01:
+mysql  -S /data/3307/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.52', MASTER_PORT=3307, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+---
+10.0.0.51:3307    <-----  10.0.0.52:3307
+db02:
+mysql  -S /data/3307/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.51', MASTER_PORT=3307, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+---------------------------------------
+（2）10.0.0.51:3309    ------>  10.0.0.51:3307
+
+db01:
+mysql  -S /data/3309/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.51', MASTER_PORT=3307, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+-------------------------------------------
+（3） 10.0.0.52:3309    ------>  10.0.0.52:3307
+
+db02:
+mysql  -S /data/3309/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.52', MASTER_PORT=3307, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+-------------------------------------------------------------------------------------
+---------------------------------------shard2-----------------------------------------
+======================================================================================
+
+
+(1) 10.0.0.52:3308  <----->    10.0.0.51:3308
+
+
+10.0.0.52:3308  ----->    10.0.0.51:3308
+db01:
+mysql  -S /data/3308/mysql.sock 
+grant replication slave on *.* to repl@'10.0.0.%' identified by '123';
+
+db02:
+mysql  -S /data/3308/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.51', MASTER_PORT=3308, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+---
+10.0.0.52:3308  <-----   10.0.0.51:3308
+
+db01:
+mysql  -S /data/3308/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.52', MASTER_PORT=3308, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+---------------------------------------------------
+(2)10.0.0.52:3310  ----->	   10.0.0.52:3308
+
+db02:
+mysql  -S /data/3310/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.52', MASTER_PORT=3308, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+------------------------------------------------
+(3)10.0.0.51:3310  ----->     10.0.0.51:3308
+
+db01:
+mysql  -S /data/3310/mysql.sock 
+CHANGE MASTER TO MASTER_HOST='10.0.0.51', MASTER_PORT=3308, MASTER_AUTO_POSITION=1, MASTER_USER='repl', MASTER_PASSWORD='123';
+start slave;
+show slave status\G
+
+---------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

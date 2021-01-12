@@ -4,7 +4,7 @@
 
 这是专栏的第一篇文章，我想来跟你聊聊 MySQL 的基础架构。我们经常说，看一个事儿千万不要直接陷入细节里，你应该先鸟瞰其全貌，这样能够帮助你从高维度理解问题。同样，对于 MySQL 的学习也是这样。平时我们使用数据库，看到的通常都是一个整体。比如，你有个最简单的表，表里只有一个 ID 字段，在执行下面这个查询语句时：
 
-```
+```mysql
 mysql> select * from T where ID=10；
 ```
 
@@ -32,7 +32,7 @@ Server 层包括连接器、查询缓存、分析器、优化器、执行器等�
 
 第一步，你会先连接到这个数据库上，这时候接待你的就是连接器。连接器负责跟客户端建立连接、获取权限、维持和管理连接。连接命令一般是这么写的：
 
-```
+```mysql
 mysql -h$ip -P$port -u$user -p
 ```
 
@@ -80,7 +80,9 @@ MySQL 拿到一个查询请求后，会先到查询缓存看看，之前是不�
 
 好在 MySQL 也提供了这种“按需使用”的方式。你可以将参数 query_cache_type 设置成 DEMAND，这样对于默认的 SQL 语句都不使用查询缓存。而对于你确定要使用查询缓存的语句，可以用 SQL_CACHE 显式指定，像下面这个语句一样：
 
+```mysql
 mysql> select SQL_CACHE * from T where ID=10；
+```
 
 需要注意的是，MySQL 8.0 版本直接将查询缓存的整块功能删掉了，也就是说 8.0 开始彻底没有这个功能了。
 
@@ -96,9 +98,11 @@ MySQL 从你输入的"select"这个关键字识别出来，这是一个查询语
 
 如果你的语句不对，就会收到“You have an error in your SQL syntax”的错误提醒，比如下面这个语句 select 少打了开头的字母“s”。
 
+```mysql
 mysql> elect * from t where ID=1;
 
 ERROR 1064 (42000): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'elect * from t where ID=1' at line 1
+```
 
 一般语法错误会提示第一个出现错误的位置，所以你要关注的是紧接“use near”的内容。
 
@@ -124,9 +128,11 @@ MySQL 通过分析器知道了你要做什么，通过优化器知道了该怎�
 
 开始执行的时候，要先判断一下你对这个表 T 有没有执行查询的权限，如果没有，就会返回没有权限的错误，如下所示 (在工程实现上，如果命中查询缓存，会在查询缓存返回结果的时候，做权限验证。查询也会在优化器之前调用 precheck 验证权限)。
 
+```mysql
 mysql> select * from T where ID=10;
 
 ERROR 1142 (42000): SELECT command denied to user 'b'@'localhost' for table 'T'
+```
 
 如果有权限，就打开表继续执行。打开表的时候，执行器就会根据表的引擎定义，去使用这个引擎提供的接口。
 

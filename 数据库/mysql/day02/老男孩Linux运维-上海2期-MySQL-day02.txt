@@ -1,0 +1,759 @@
+
+====================================老男孩Linux运维-上海2期-MySQL-day02===================================
+
+mysql 5.7编译安装
+
+下载带有boost的mysql-5.7.20（默认版本为1.59版本）
+
+官方自带（boost版本mysql）
+
+wget https://dev.mysql.com/get/Downloads/MySQL-5.7/mysql-boost-5.7.20.tar.gz
+
+tar xf mysql-boost-5.7.20.tar.gz
+mv mysql-boost-5.7.20 mysql
+安装依赖包
+yum install -y cmake gcc-c++ ncurses-devel perl-Data-Dumper boost boost-doc boost-devel
+
+创建关键目录
+
+mkdir /application/mysql
+mkdir /application/mysql/mydata
+mkdir /application/mysql/conf
+useradd mysql
+chown -R mysql:mysql /application/mysql*
+
+cmake进行预编译：
+
+cmake -DCMAKE_INSTALL_PREFIX=/application/mysql \
+-DMYSQL_DATADIR=/application/mysql/mydata  \
+-DMYSQL_USER=mysql -DWITH_MYISAM_STORAGE_ENGINE=1 \
+-DWITH_INNOBASE_STORAGE_ENGINE=1 \
+-DMYSQL_UNIX_ADDR=/application/mysql1/mysql.sock \
+-DMYSQL_TCP_PORT=3306 -DEXTRA_CHARSETS=all \
+-DDEFAULT_CHARSET=utf8 -DDEFAULT_COLLATION=utf8_general_ci \
+-DWITH_DEBUG=0 -DMYSQL_MAINTAINER_MODE=0 \
+-DWITH_SSL:STRING=bundled -DWITH_ZLIB:STRING=bundled \
+-DWITH_SYSTEMD=1 -DDOWNLOAD_BOOST=1 -DWITH_BOOST=./boost
+
+make && make install
+
+
+初始化数据:
+
+/application/mysql/bin/mysqld --initialize-insecure  --user=mysql --datadir=/application/mysql/mydata --basedir=/application/mysql
+
+
+
+使用systemd管理mysql5.7
+
+（1）书写默认配置文件
+vim /etc/my.cnf
+[mysqld]
+basedir=/application/mysql
+datadir=/application/mysql/mydata
+socket=/tmp/mysql.sock
+log_error=/var/log/mysql.log
+user=mysql
+port=6606
+[client]
+socket=/tmp/mysql.sock
+
+(2)生成启动脚本
+vim /etc/systemd/system/mysqld.service
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/application/mysql/bin/mysqld --defaults-file=/etc/my.cnf
+LimitNOFILE = 5000
+
+
+(3)systemd管理
+
+systemctl  start/stop/restart/status   mysqld
+
+
+(4)5.7的区别
+
+5.6 中用户基本信息
+select user,password,host from mysql.user;
+5.7 中用户基本信息
+select user,authentication_string,host from mysql.user;
+
+课后题:
+思考5.7中忘记root密码怎么办?
+
+
+==================================
+作业：
+1、mysql5.7.20 二进制的安装部署，有能力的话安装编译版本
+2、mysqld的三层结构的功能
+3、预习day02
+===================================
+上集回顾:
+1. 版本选择(你们公司用的什么版本数据库)  面试
+5.6 :  5.6.34  5.6.36  5.6.38 
+5.7 :  5.7.18  5.7.20  5.7.22 
+
+2. 数据库分类(笔试)
+rdbms(关系):
+Oracle  MySQL mssql pg
+NoSQL(非关系):
+Mongodb   Redis  memcached  ES  neo4j hbase
+
+3.安装
+5.6 二进制 
+解压  ----> /application/mysql   ---->useradd mysql---->chown -R mysql. /application/mysql
+----->mysql_install_db --user  --basedir  --datadir
+----->socket=/tmp/mysql.sock
+----->vim /etc/my.cnf
+
+编译
+cmake  make make install 
+
+4. 忘记root密码
+--skip-grant-tables  
+--skip-networking 
+
+5. 5.7新特性
+安装时的变化
+cmake   boost ---> mysqld  my.cnf
+初始化变化
+mysqld  --initialize    
+1.会生成一个临时的密码----->err文件中  
+2.开启密码复杂度策略
+3.密码过期时间180
+
+mysqld  --initialize-insecure 
+
+密码管理
+
+5.6 中用户基本信息
+select user,password,host from mysql.user;
+5.7 中用户基本信息
+select user,authentication_string,host from mysql.user;
+
+
+6. 
+CS结构:
+TCP/IP    ip   port  user  password 
+Socket    user  password 
+
+实例:
+mysqld(守护进程)---->master tread ----> read  write----->内存结构
+
+mysqld 程序结构
+连接层
+
+SQL层:   代价(cpu/mem/IO)   执行计划
+
+存储引擎层
+
+7.mysql的逻辑结构(逻辑对象)
+
+库                              目录       
+库名,属性                     目录名,属性
+表								文件
+表名							文件名
+表属性							文件属性
+表内容							文件内容
+表列=列名字+列属性
+
+====================================================================
+
+第四章 MySQL 基本管理
+
+
+1.MySQL 用户,权限管理
+
+(1) 用户作用?
+linux 用户的作用:
+	登录系统
+	管理操作系统对象(文件\目录)
+MySQL 用户的作用:
+	登录MySQL
+	管理mysql的对象(库\表)
+
+(2)用户表现方式?
+linux用户表现方式:用户名
+mysql用户的表现方式:
+用户名@'白名单'
+
+user1@''
+白名单支持设置方法:
+
+'user1'@'10.0.0.200'
+'user1'@'10.0.0.%'
+'user1'@'10.0.0.5%'
+'user1'@'10.0.0.0/255.255.255.0'
+'user1'@'rdbmsa.com'
+'user1'@'%'
+
+(3)用户管理
+
+mysql> create user oldguo@'10.0.0.%' identified by '123';
+mysql> drop user oldguo@'10.0.0.%';
+mysql> select user,host,password from mysql.user;
+mysql>set password for oldguo@'10.0.0.%'=PASSWORD('456');
+
+
+补充:
+5.7以上操作有什么变化?
+mysql> select user,host,authentication_string from mysql.user;
+
+(4) 权限管理
+linux 权限作用:
+控制用户对文件能够操作哪些命令.
+
+权限分类
+r
+w
+x
+权限是文件的属性
+chmod 755  /test
+
+grant all on *.* to wordpress@'10.0.0.%' identified by '123';
+
+grant  权限      on        对象       to        用户 
+
+
+=================================================
+8.0中:
+grant all on *.* to wordpress@'10.0.0.%' ;
+1.用户要提前创建好
+2.不支持设置密码的功能
+=================================================
+
+mysql的权限分类:
+ALL:
+SELECT,INSERT, UPDATE, DELETE, CREATE, DROP, RELOAD, SHUTDOWN, PROCESS, FILE, REFERENCES, INDEX, ALTER, SHOW DATABASES, SUPER, CREATE TEMPORARY TABLES, LOCK TABLES, EXECUTE, REPLICATION SLAVE, REPLICATION CLIENT, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, CREATE USER, EVENT, TRIGGER, CREATE TABLESPACE
+除了(WITH GRANT OPTION ):
+grant,revoke
+
+对象(范围):
+*.*                                            /
+wordpress.*                                    /wordpress
+wordpress.t1                                   /wordpress/t1
+ 
+================================================================
+
+grant all on *.* to wordpress@'10.0.0.%' identified by '123';
+
+授权wordpress@'10.0.0.%',能够对*.*(所有库和表) ,进行all(所有命令操作),除了grant,revoke
+如果wordpress@'10.0.0.%'不存在会被自动创建,并将密码设定为123.
+
+
+需求:
+1.开一个管理员用户admin,能通过10.0.0.%这个网段管理mysql (WITH GRANT OPTION )
+mysql> grant all on *.* to admin@'10.0.0.%' identified by '123' with grant option;
+
+2.开一个应用用户app,能通过10.0.0.%这个网段对app库下所有表进行SELECT,INSERT, UPDATE, DELETE
+mysql> grant SELECT,INSERT, UPDATE, DELETE on app.* to app@'10.0.0.%' identified by '123';
+
+
+查看用户拥有的权限:
+
+show grants for app@'10.0.0.%';
+
+补充:
+1. 多次设置权限,权限是相加关系
+2. 表会继承上层库的权限
+
+
+回收权限:
+show grants for admin@'10.0.0.%';
+
+revoke  权限    on     对象范围    from 用户
+revoke select on *.* from 'admin'@'10.0.0.%';
+
+需求:将app@'10.0.0.%'用户的delete权限收回
+
+revoke delete on app.* from app@'10.0.0.%';
+
+
+思考问题:
+
+开发环境: windows MySQL
+测试环境: Linux MySQL
+生产环境: Linux MySQL
+
+1. 公司中应用开发人员需要申请生产用户,你如何和他沟通?
+(1)操作哪些库,表?
+(2)权限:select update  insert
+(3)从哪登录?
+(4)用户名密码
+
+2. 开发人员找你要root管理员用户,你给不给?
+情商!
+
+=====================
+
+2. 客户端工具使用
+
+(1) mysql 命令使用
+作用:	登录mysql
+常用参数:
+-u   用户名
+-p   密码
+
+例子:注意不要把密码写到命令行
+mysql -uroot -p
+
+-S  指定socket文件位置	
+mysql -uroot -p -S /application/mysql/tmp/mysql.sock 
+
+注:
+如果是编译安装的mysql,可以省略-S 
+如果其他方式呢,加上-S 
+
+-h  指定链接的地址
+mysql -uroot -p -h 10.0.0.51 
+
+-P  指定链接的端口号
+
+mysql -uroot -p -h 10.0.0.51  -P 3307
+
+-e  免交互式执行mysql内部命令
+
+mysql -uroot -p -e "select user,host,password from mysql.user;"
+
+<  导入SQL脚本到mysql中
+
+mysql -uroot -p </root/world.sql
+
+
+(2)mysqladmin简单使用
+-u  -p   -S  -h  -P 
+mysqladmin -uroot -p password 123
+Enter password: 
+mysqladmin -uroot -p shutdown 
+
+(3)mysqldump备份恢复章节介绍
+
+
+3. MySQL的启动流程
+
+mysql.server -----> mysqld_safe  ------> mysqld
+
+
+
+4. 初始化配置
+
+目的:为了能够让mysql ,按照我们管理员的想法启动.
+
+(1)预编译的时候修改(A)
+  cmake时指定参数,一般建议修改一些不会经常变化的参数
+  
+(2) 初始化配置文件 (B)
+
+读取顺序:
+/etc/my.cnf ---->/etc/mysql/my.cnf --->  /application/mysql-5.6.38/etc/my.cnf  --> ~/.my.cnf 
+mysqld_safe    --defaults-file=/tmp/my3306.cnf
+
+
+(3)初始化配置文件的使用
+初始化配置文件结构
+
+[标签1]
+a=xxx
+[标签2]
+b=yyy
+
+标签分类:
+	服务器标签:
+	作用:影响了数据库的启动
+	[server]
+	[mysqld]
+	[mysqld_safe]
+	
+	客户端标签:
+	作用:影响了客户端连接
+	[client]
+	[mysql]
+	[mysqladmin]
+	[mysqldump]
+
+配置例子:
+vim /etc/my.cnf
+[mysqld]
+basedir=/application/mysql
+datadir=/application/mysql/data
+socket=/application/mysql/tmp/mysql.sock
+port=3306
+log_error=/var/log/mysql.log
+server_id=6
+[mysql]
+user=root
+password=123
+socket=/application/mysql/tmp/mysql.sock
+prompt=\\ oldguo [\\d]>
+
+
+重启生效
+/etc/init.d/mysqld restart
+
+
+(3)使用命令行参数,干预mysql启动(C)
+mysqld_safe --socket=/tmp/mysql.sock --port=8806 &
+命令行设置的参数,优先级最高
+
+
+
+5.多"实例"(多个数据库管理系统)应用
+
+软件部分(实例)
+多配置文件
+多port
+多socket
+多个日志
+多server_id
+
+数据部分
+初始化多套数据
+=======================
+多实例配置:
+1. 创建多个专用目录
+mkdir /data/330{7..9}/data -p
+
+2. 准备多个配置文件
+vim /data/3307/my.cnf
+
+[mysqld]
+basedir=/application/mysql
+datadir=/data/3307/data
+socket=/data/3307/mysql.sock
+port=3307
+log-error=/data/3307/mysql.log
+skip-name-resolve
+server-id=7
+
+--------------------------
+vim /data/3308/my.cnf
+
+[mysqld]
+basedir=/application/mysql
+datadir=/data/3308/data
+port=3308
+socket=/data/3308/mysql.sock
+log-error=/data/3308/mysql.log
+skip-name-resolve
+server-id=8
+
+------------------
+vim /data/3309/my.cnf
+
+[mysqld]
+basedir=/application/mysql
+datadir=/data/3309/data
+socket=/data/3309/mysql.sock
+port=3309
+log-error=/data/3309/mysql.log
+skip-name-resolve
+server-id=9
+
+
+3. 初始化多次数据库
+
+
+初始化三套数据：
+/application/mysql/scripts/mysql_install_db --user=mysql --basedir=/application/mysql --datadir=/data/3307/data
+
+/application/mysql/scripts/mysql_install_db --user=mysql --basedir=/application/mysql --datadir=/data/3308/data
+
+/application/mysql/scripts/mysql_install_db --user=mysql --basedir=/application/mysql --datadir=/data/3309/data
+
+
+修改权限：
+
+touch /data/330{7..9}/mysql.log
+chown -R mysql.mysql /data/330*
+
+
+启动数据库：
+/application/mysql/bin/mysqld_safe --defaults-file=/data/3307/my.cnf &
+/application/mysql/bin/mysqld_safe --defaults-file=/data/3308/my.cnf &
+/application/mysql/bin/mysqld_safe --defaults-file=/data/3309/my.cnf &
+
+验证：
+netstat -lnp|grep 330
+
+
+连接测试：
+
+mysql -S /data/3307/mysql.sock -e "show variables like 'server_id'"
+mysql -S /data/3308/mysql.sock -e "show variables like 'server_id'"
+mysql -S /data/3309/mysql.sock -e "show variables like 'server_id'"
+
+
+关闭多实例:
+
+mysqladmin -S /data/3307/mysql.sock shutdown
+mysqladmin -S /data/3308/mysql.sock shutdown
+mysqladmin -S /data/3309/mysql.sock shutdown
+
+
+
+=====
+远程连接工具的使用(SQL编程常用工具):
+mysql:
+navicat   
+sqlyog
+
+
+oracle:
+Toad
+sql/developer
+pl/sql developer
+
+需求:
+开一个管理员用户(ALL)root,能通过windows上的sqlyog登录linux上mysql.
+
+skip_name_resolve  跳过域名解析
+
+grant all on *.* to root@'10.0.0.%' identified by '123';
+
+
+
+第五章
+
+1. 客户端工具应用
+(1) mysql命令的功能
+连接数据库(略)
+客户端自带的命令功能
+help    查看mysql客户端命令帮助
+use     切换到指定库
+use  world
+exit    
+source    运行sql脚本文件
+source /root/world.sql
+\G    格式化输出
+select * from mysql.user\G
+
+接收SQL语句,发送给服务端:
+
+
+mysql逻辑结构
+库:库名,属性   
+表:表名字,列,表属性 ,数据行
+
+
+2. SQL的分类:
+作用:操作库和表
+
+DDL:数据定义语言
+
+库定义:
+创建库定义
+help create database 
+create database wordpress charset utf8;
+
+开发规范:
+1.库名不能出现大写
+2.库名不能以数字开头
+3.库名要和业务功能相关
+4.建库要加字符集.
+
+删除定义 
+drop  database oldboy;
+
+修改定义
+alter  database oldboy utf8mb4;      DB2—alter追加/删除/重置column操作
+
+
+查看库的信息:
+show databases;
+show create database oldboy ;
+
+表定义:
+
+创建:
+create table 
+
+Syntax:
+CREATE  TABLE    tbl_name (create_definition(创建定义),...)
+create_definition(创建定义):
+    col_name column_definition(列定义)
+column_definition:
+    data_type
+	
+[NOT NULL | NULL] 
+[DEFAULT default_value]
+[AUTO_INCREMENT]   自增长代码代表
+[UNIQUE [KEY] | [PRIMARY] KEY] 是一个唯一KEY，此时，所有的关键字列必须定义为NOT NULL。
+如果这些列没有被明确地定义为NOT NULL，MySQL应隐含地定义这些列。
+一个表只有一个PRIMARY KEY。如果您没有PRIMARY KEY并且一个应用程序要求在表中使用PRIMARY KEY，
+则MySQL返回第一个UNIQUE索引，此索引没有作为PRIMARY KEY的NULL列。
+
+[COMMENT 'string']                                 
+
+references  主表名 (列名)
+是否为空: 不为空的代码：not null
+	
+	
+	
+	
+data_type(数据类型):
+数字:
+ TINYINT         -128-127       0-255
+ INT             -2^31-2^31-1   0-2^32-1   10位数字
+  
+时间:  
+  TIMESTAMP     
+  DATETIME   
+  
+  
+字符串:  
+CHAR(20)        定长,不管用多少都立即分配20个字符长度,会有磁盘空间浪费
+VARCHAR(20)     变长,用多少分多少,在存数据时,会判断字符长度
+ENUM(value1,value2,value3,...) 枚举
+
+
+CREATE TABLE stu(
+id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+NAME VARCHAR(20) NOT NULL,
+age TINYINT,
+gender ENUM('m','f','n') NOT NULL DEFAULT 'm'
+);
+
+
+查看表的信息;
+desc stu;
+show create table stu;
+
+
+=========================================
+作业:
+1.   5.7的多实例
+2.   按需求建立数据库和表
+
+student(sno,sname,sage,ssex) 学生表 
+sno：  学号;
+sname：学生姓名;
+sage： 学生年龄;
+ssex： 学生性别;
+
+course(cno,cname,tno) 课程表 
+cno：  课程编号；
+cname：课程名字；
+tno：  教师编号 ；
+
+sc(sno,cno,score) 成绩表 
+sno：  学号；
+cno：  课程编号；
+score：成绩 ；
+
+teacher(tno,tname) 	教师表 
+tno：  教师编号； 
+tname：教师名字；
+
+3. 分享题材不限
+
+4. 预习明天
+
+DDL 
+表定义的规范
+修改表定义
+DML
+insert
+update 
+delete
+
+DQL
+select 
+show
+
+
+===================
+
+  
+  
+  
+DCL:数据控制语言
+DML:数据操作语言
+DQL:数据查询语言
+
+
+CREATE DATABASE school CHARSET utf8;
+USE school
+CREATE TABLE student(
+sno INT NOT NULL PRIMARY KEY AUTO_INCREMENT COMMENT '学号',
+sname VARCHAR(20) NOT NULL COMMENT '姓名',
+sage  TINYINT UNSIGNED  NOT NULL COMMENT '年龄',
+ssex  ENUM('f','m') NOT NULL DEFAULT 'm' COMMENT '性别'
+)ENGINE=INNODB CHARSET=utf8;
+SHOW TABLES;
+
+-----------
+course(cno,cname,tno) 课程表 
+cno：  课程编号；
+cname：课程名字；
+tno：  教师编号 ；
+------------
+
+CREATE TABLE course(
+cno INT NOT NULL PRIMARY KEY COMMENT '课程编号',
+cname VARCHAR(20) NOT NULL COMMENT '课程名字',
+tno INT NOT NULL COMMENT '教师编号'
+)ENGINE=INNODB CHARSET utf8;
+
+============================
+sc(sno,cno,score) 成绩表 
+sno：  学号；
+cno：  课程编号；
+score：成绩 ；
+============================
+CREATE TABLE sc (
+sno INT NOT NULL COMMENT '学号',
+cno INT NOT NULL COMMENT '课程编号',
+score INT NOT NULL DEFAULT 0 COMMENT '成绩'
+)ENGINE=INNODB CHARSET=utf8;
+
+
+===================
+teacher(tno,tname) 	教师表 
+tno：  教师编号； 
+tname：教师名字；
+====================
+
+CREATE TABLE teacher(
+tno INT NOT NULL PRIMARY KEY COMMENT '教师编号',
+tname VARCHAR(20) NOT NULL COMMENT '教师名字'
+)ENGINE=INNODB CHARSET utf8;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

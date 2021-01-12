@@ -1,0 +1,53 @@
+1、模拟数据库数据
+为了测试我们创建一个oldboy的库创建一个t1的表，然后导入50万行数据，脚本如下：
+vim slap.sh
+#!/bin/bash  
+HOSTNAME="localhost" 
+PORT="3306" 
+USERNAME="root" 
+PASSWORD="123" 
+DBNAME="oldboy" 
+TABLENAME="t1" 
+#create database 
+mysql -h ${HOSTNAME} -P${PORT} -u${USERNAME} -p${PASSWORD} -e "drop database if exists ${DBNAME}" 
+create_db_sql="create database if not exists ${DBNAME}" 
+mysql -h ${HOSTNAME} -P${PORT} -u${USERNAME} -p${PASSWORD} -e "${create_db_sql}" 
+#create table 
+create_table_sql="create table if not exists ${TABLENAME}(stuid int not null primary key,stuname varchar(20) not null,stusex char(1)   
+not null,cardid varchar(20) not null,birthday datetime,entertime datetime,address varchar(100)default null)" 
+mysql -h ${HOSTNAME} -P${PORT} -u${USERNAME} -p${PASSWORD} ${DBNAME} -e "${create_table_sql}" 
+#insert data to table 
+i="1" 
+while [ $i -le 500000 ]  
+do  
+insert_sql="insert into ${TABLENAME}  values($i,'alexsb_$i','1','110011198809163418','1990-05-16','2017-09-13','oldboyedu')" 
+mysql -h ${HOSTNAME} -P${PORT} -u${USERNAME} -p${PASSWORD} ${DBNAME} -e "${insert_sql}" 
+let i++  
+done  
+#select data  
+select_sql="select count(*) from ${TABLENAME}" 
+mysql -h ${HOSTNAME} -P${PORT} -u${USERNAME} -p${PASSWORD} ${DBNAME} -e "${select_sql}"
+
+执行脚本：
+sh slap.sh
+
+
+2、检查数据可用性
+mysql -uroot -p123
+select count(*) from oldboy.t1;
+
+
+
+3、在没有优化之前我们使用mysqlslap来进行压力测试
+mysqlslap --defaults-file=/etc/my.cnf \
+ --concurrency=100 --iterations=1 --create-schema='oldboy' \
+--query="select * from oldboy.t1 where stuname='alexsb_100'" engine=innodb \
+--number-of-queries=200000 -uroot -p123 -verbose
+
+
+
+
+
+
+
+

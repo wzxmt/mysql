@@ -1,0 +1,83 @@
+#!/bin/bash
+cat >/data/3307/my.cnf<<EOF
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3307/data
+socket=/data/3307/mysql.sock
+port=3307
+log-error=/data/3307/mysql.log
+log_bin=/data/3307/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=7
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+
+-----------------------------
+cat >/data/3308/my.cnf<<EOF
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3308/data
+port=3308
+socket=/data/3308/mysql.sock
+log-error=/data/3308/mysql.log
+log_bin=/data/3308/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=8
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+------------------
+cat >/data/3309/my.cnf<<EOF
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3309/data
+socket=/data/3309/mysql.sock
+port=3309
+log-error=/data/3309/mysql.log
+log_bin=/data/3309/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=9
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+cat >/data/3310/my.cnf<<EOF
+
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/data/3310/data
+socket=/data/3310/mysql.sock
+port=3310
+log-error=/data/3310/mysql.log
+log_bin=/data/3310/mysql-bin
+binlog_format=row
+skip-name-resolve
+server-id=10
+gtid-mode=on
+enforce-gtid-consistency=true
+log-slave-updates=1
+EOF
+
+cat >/etc/systemd/system/mysqld3307.service<<EOF
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+[Service]
+User=mysql
+Group=mysql
+ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/data/3307/my.cnf
+LimitNOFILE = 5000
+EOF
+
