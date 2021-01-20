@@ -1,6 +1,4 @@
-
-=========================================老男孩Linux运维-上海2期-MySQL-day11===========================
-0.上集回顾:
+上集回顾:
 vip漂移:应用透明
 master_ip_failover
 binlog_server:额外的数据补偿,实时备份主库的binlog,MHA故障之后,都要重新配置Binlogserver

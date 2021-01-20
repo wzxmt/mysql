@@ -1,40 +1,13 @@
-
-====================================老男孩Linux运维-上海2期-MySQL-day01===================================
-oldguo 
-
-9年
-DB:
-Oracle  MySQL  Mongodb  Redis
-OS:
-AIX   Redhat
-
-=======
-淘宝:
-LNT 
+淘宝:LNT 
 Mongodb:导航
 ES:搜索应用
 MySQL(AliSQL):用户数据\商品信息
 Tair(redis\memcached):缓存,双11前两周,会将热点数据灌入缓存
-
 =====================================================
-17天:
-
-MySQL 
-
-
-Mongodb
-
-
-redis
-
-
-==============================
 第一章    MySQL介绍
-
 一、运维DBA工作内容：
-
 初级DBA：
-    安装配置，基本使用，基本故障处理
+安装配置，基本使用，基本故障处理
 中级DBA：
 体系结构、备份策略设计，故障恢复，基础高可用的运维（搭建、监控、故障处理、架构演变）、
 基础优化（索引、执行计划、慢日志）
@@ -44,27 +17,24 @@ redis
 ==========================================
 二、老男孩Linux运维-MySQL课程框架
 ==========================================
-1、MySQL简介及部署                  ***
-2、MySQL体系结构                    ****
-3、MySQL基础管理                    ****
-4、SQL应用                          ***
-5、Information_schema获取元数据     ***
-
+1、MySQL简介及部署			***
+2、MySQL体系结构			****
+3、MySQL基础管理                 	   	****
+4、SQL应用				***
+5、Information_schema获取元数据	***
 ==========================================
-6、索引及执行计划                    *****
-7、MySQL存储引擎                     ****
-8、MySQL日志管理                     *****
-9、MySQL备份与恢复                   *****
-10、MySQL主从复制及架构演变          *****
+6、索引及执行计划                    		*****
+7、MySQL存储引擎			****
+8、MySQL日志管理			*****
+9、MySQL备份与恢复			*****
+10、MySQL主从复制及架构演变		*****
 ==========================================
-11、MySQL高可用架构                  ***           
-12、MySQL高性能架构                  ***
-13、MySQL优化                        ***
-14、MySQL5.7及8.0高可用新特性       ***
-
+11、MySQL高可用架构			***
+12、MySQL高性能架构                  	***
+13、MySQL优化                        		***
+14、MySQL5.7及8.0高可用新特性  	***
 ==========================================
 IT人员应该具备的职业素质(运维更加重视)
-
 个人素养(和技术能力无关)
 1、人品
 2、严谨
@@ -77,45 +47,42 @@ IT人员应该具备的职业素质(运维更加重视)
 用户行为
 7、熟悉行业
 8、喜欢数据库
-
 三、数据库管理系统
 1、数据？              ----了解
+
 2、数据库管理系统？    ----了解
 更好存储数据,管理数据
 
 3、RDBMS与NOSQL        ----熟悉
 关系型数据库(RDBMS)
 非关系型数据库(NOSQL)
-    3.1 RDBMS和NoSQL基本特点
-    3.2 产品介绍（熟悉）
-        RDBMS：Oracle、MySQL、mssql（SQL Server）、PG（postgresql）
-               数据安全性要求较高的应用场景
-			二维表的形式组织存储数据(有清楚的行列结构)   
-			   	   
-        NoSQL：redis(键值)
-			name:zhangsan 
-		mongodb(文档)
-			json   {
-					id:1
-					name:zhangsan
-					}
-		memcache、ES,  Hbase、neo4j
-               针对性能要求较高，数据安全性要求不是太高的场景，一般是配合RDBMS使用的产品 			   
-4、Oracle产品介绍
-    Oracle：10g 11g 12c 18c    -----了解
-	
-    MySQL：5.6  5.7  8.0       -----熟悉
-	
-	主流版本:5.6   5.7
+3.1 RDBMS和NoSQL基本特点
+3.2 产品介绍（熟悉）
+RDBMS：Oracle、MySQL、mssql（SQL Server）、PG（postgresql）
+数据安全性要求较高的应用场景
+二维表的形式组织存储数据(有清楚的行列结构)   			   	   
+NoSQL：
+redis(键值)
+name:zhangsan 
+mongodb(文档)
+json   {
+	id:1
+	name:zhangsan
+}
+memcache、ES,  Hbase、neo4j
+针对性能要求较高，数据安全性要求不是太高的场景，一般是配合RDBMS使用的产品 			   
 
-   版本选择行业潜规则:
-			选择GA版本6-12月产品
-			
-    5.6.34   5.6.36   5.6.38
-	当前版本已经用了2年了,没有出现过任何由于版本问题出现的不稳定情况
-	升级是有风险的.所以暂时没有考虑升级.
-    5.7.18   5.7.20 
-    我们公司新上的项目使用了5.7.20这个版本中的高可用架构(MGR).
+4、Oracle产品介绍
+Oracle：10g 11g 12c 18c    -----了解	
+MySQL：5.6  5.7  8.0       -----熟悉	
+主流版本:5.6   5.7
+版本选择行业潜规则:
+选择GA版本6-12月产品
+5.6.34   5.6.36   5.6.38
+当前版本已经用了2年了,没有出现过任何由于版本问题出现的不稳定情况
+升级是有风险的.所以暂时没有考虑升级.
+5.7.18   5.7.20 
+我们公司新上的项目使用了5.7.20这个版本中的高可用架构(MGR).
 
 面试场景：
 1、你对数据库熟悉吗，看你简历数据库会的挺多
@@ -130,51 +97,43 @@ IT人员应该具备的职业素质(运维更加重视)
 （6）基于应用的兼容性思考，我们暂时没有打算上5.7。
 （7）但是我们已经准备好将来在必要的时候，更新为新版本
 （8）我对5.7的新特性也比较了解。
-=====================
 
 5、MySQL获取与安装方式介绍
-
 https://downloads.mysql.com/archives/community/
-
-
 5.1.RPM、Yum：安装方便、安装速度快，无法定制           ---->了解
 5.2.二进制：不需要安装，解压即可使用，不能定制功能     ---->熟悉
 5.3.编译安装：可定制，安装慢。                         ---->熟悉
-		5.5之前：./configure  make   make install
-		5.5之后：cmake  gmake
+	5.5之前：./configure  make   make install
+	5.5之后：cmake  gmake
 5.4.先编译，然后制作rpm，制作yum库，然后yum安装。      ----->熟悉dd
-		 简单、速度快、可定制，比较复杂 制作时间长
+	简单、速度快、可定制，比较复杂 制作时间长
 5.5.企业选择安装方式
-		中小企业：以上方式都可以，运维偏向编译，dba偏向选择二进制。
-		大型企业：可以选择4
+	中小企业：以上方式都可以，运维偏向编译，dba偏向选择二进制。
+	大型企业：可以选择4
 
 6、源码编译安装MySQL
-
 安装前准备
 （1）克隆一个模板机器（使用centos6），克隆完做快照
 （2）IP 10.0.0.51主机名db01
- (3)iptables   selinux
-（3）下载好5.6.38
-（4）安装依赖包
-     yum  install  -y  ncurses-devel libaio-devel
-（5）安装cmake
-		yum install cmake -y
-（6）创建用户
-		useradd -s /sbin/nologin -M mysql
-		id mysql
-
+（3）iptables   selinux
+（4）下载好5.6.38
+（5）安装依赖包
+	yum  install  -y  ncurses-devel libaio-devel
+（6）安装cmake
+	yum install cmake -y
+（7）创建用户
+	useradd -s /sbin/nologin -M mysql
+	id mysql
 开始安装：
 cd /server/tools/
-
 ls -l mysql-5.6.38.tar.gz
 尽量去官方下载
-
 tar xf mysql-5.6.38.tar.gz
 cd mysql-5.6.38
 
-cmake . -DCMAKE_INSTALL_PREFIX=/application/mysql-5.6.38 \
--DMYSQL_DATADIR=/application/mysql-5.6.38/data \
--DMYSQL_UNIX_ADDR=/application/mysql-5.6.38/tmp/mysql.sock \
+cmake . -DCMAKE_INSTALL_PREFIX=/usr/local/mysql-5.6.38 \
+-DMYSQL_DATADIR=/usr/local/mysql-5.6.38/data \
+-DMYSQL_UNIX_ADDR=/usr/local/mysql-5.6.38/tmp/mysql.sock \
 -DDEFAULT_CHARSET=utf8 \
 -DDEFAULT_COLLATION=utf8_general_ci \
 -DWITH_EXTRA_CHARSETS=all \
@@ -188,13 +147,10 @@ cmake . -DCMAKE_INSTALL_PREFIX=/application/mysql-5.6.38 \
 -DWITH_EMBEDDED_SERVER=1 \
 -DENABLE_DOWNLOADS=1 \
 -DWITH_DEBUG=0
-
-
 如果cmake报错,大部分原因是由于关键的开发包组没有安装
 处理方法:
 1. yum groupinstall xxxx
 2. 压缩包删掉,重新解压,重新cmake即可
-
 -----------------
 cmake干了什么？
 1、做了些预配置
@@ -205,80 +161,43 @@ cmake干了什么？
     mysqldump
     mysqladmin
     mysqld_safe
-    等。
-		
+    等。		
 -----------------
 make && make install
 ---------------------
 一套完整的数据库管理系统
 从文件角度来讲：
-1、软件部分------>/application/mysql-5.6.38
-2、数据部分------>/application/mysql/data
-
+1、软件部分------>/usr/local/mysql-5.6.38
+2、数据部分------>/usr/local/mysql/data
 --------------------------------------------------
-ln -s /application/mysql-5.6.38/ /application/mysql
-
+ln -s /usr/local/mysql-5.6.38/ /usr/local/mysql
 --------------------------------------------------
-
 rm -rf /etc/my.cnf*
 
 初始化系统数据：
 创建数据库的基础数据
-
-/application/mysql/scripts/mysql_install_db --basedir=/application/mysql/ --datadir=/application/mysql/data --user=mysql
-
+/usr/local/mysql/scripts/mysql_install_db --basedir=/usr/local/mysql/ --datadir=/usr/local/mysql/data --user=mysql
 修改软件路径归属：
-chown -R mysql.mysql /application/mysql/
-
-
+chown -R mysql.mysql /usr/local/mysql/
 ++++++++++++++++++++++++++++++++++++
-cd /application/mysql/bin
+cd /usr/local/mysql/bin
+[root@db01 bin]# mkdir /usr/local/mysql/tmp
+[root@db01 bin]# chown -R mysql. /usr/local/mysql
 [root@db01 bin]# ./mysqld_safe &
-[1] 16591
-[root@db01 bin]# Logging to '/application/mysql/data/db01.err'.
-181114 14:35:55 mysqld_safe Directory '/application/mysql-5.6.38/tmp' for UNIX socket file don't exists.
-
-[1]+  Exit 1                  ./mysqld_safe
-[root@db01 bin]# 
-[root@db01 bin]# 
-[root@db01 bin]# 
-[root@db01 bin]# mkdir /application/mysql/tmp
-[root@db01 bin]# chown -R mysql.mysql /application/mysql
-
-[root@db01 bin]# ./mysqld_safe &
-
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++
 查看端口号：
 netstat -lntup|grep 330
-
-echo 'PATH=/application/mysql/bin/:$PATH' >>/etc/profile
-
-tail -1 /etc/profile
-
+echo 'PATH=/usr/local/mysql/bin/:$PATH' >>/etc/profile
 source /etc/profile 
-
 echo $PATH
-mysql
-
 
 拷贝启动脚本到Sys-v模式目录：
 cp support-files/mysql.server /etc/init.d/mysqld
 chmod 700 /etc/init.d/mysqld
 启动数据库：
 /etc/init.d/mysqld start
-
-----------
-
-
 安装完成之后设置密码（设定root的密码）
-mysqladmin password 123
-
-或者
-mysqladmin -uroot -p password oldboy123
-Enter password:旧密码
-
-
----------后面讲-----
+mysqladmin password 123 或者 mysqladmin -uroot -p password test123
 清理用户及无用数据库(基本优化)
 select user,host ,password from mysql.user;
 drop user ''@'db01';
@@ -290,53 +209,35 @@ select user,host,password  from mysql.user;
 drop database test;
 show databases;
 
-
 密码忘记咋办？
-
 1.关数据库
 2.mysqld_safe --skip-grant-tables --skip-networking &
-3.
+3.重置密码（5.6）
 update mysql.user set password=PASSWORD('123456') where user='root' and host='localhost';
-select user,password,host from mysql.user;
+#5.7
+update user set authentication_string=password(‘123456’) where user=’root’ and host=’localhost’; 
 4.重启数据
-/etc/init.d/mysqld restart
-
+mysqladmin shutdown
+/etc/init.d/mysqld start
 ---------------------
 第三章  体系结构
 一. 服务器与客户端模型(c/s)
-
-
 grant all on wordpress.* to wordpress@'10.0.0.%' identified by '123';
-
-
 TCPIP模式:
 mysql -uwordpress -p123 -h 10.0.0.51 -P 3306 
-
 socket模式:
-
-
 公司:
 老板======>经理=====>员工
 长期的办公地点
-
 实例:
 mysqld进程(老板)======>master thread(主线程,经理) =======>N个干活的Thread(员工)
 工作需要的内存区域(办公地点)
-
-
 结论:
 实例=mysqld + master thread + N thread + 内存区域
 一个完整的数据库管理系统=实例+数据
-
-----------------------------------------
-
 例子：
 mysql -uroot -p123 
 select user,host,password from mysql.user;
-
-
-----------------------------------------
-
 mysqld程序模型(SQL语句的执行过程):
 
 连接层功能
@@ -351,63 +252,44 @@ SQL层 :
 4. 解析器,解析出SQL语句所有可能的执行方式,这些方式被称之为"执行计划"
 5. 优化器,基于执行代价(系统资源的消耗作为维度(cpu\mem\IO)).管理员可以通过间接的方法,干预优化器的选择
 6. 执行器,按照优化器选择的"最优"的执行计划,执行SQL语句.得出结论:某某磁盘的某某位置,发送给存储引擎层.
-
 7. 提供查询缓存:有局限性.一般会用redis产品来替代.
 8. 记录查询日志:
 
 存储引擎层:
-和"磁盘"(文件系统)打交道的层次
-根据SQL层执行的结果,去磁盘上找到对应的数据.结构化成表的模式,返回给用户.
-
+1、接收上层的执行结果
+2、取出磁盘文件的相应数据
+3、返回给SQL层，结构化之后（生成表格），由专用线程 A thread，返回给客户端
 
 MySQL的逻辑结构（抽象结构）
-
 库(database,schema):                                   Linux中的目录
 库名,库属性									           目录名,属性
-
 表(table)                                              linux中的文件
 表名字,列(列名字,列属性),表属性,表数据				   文件名,属性,数据行
 
-
-
 MySQL物理结构（如何使用磁盘）
-
 库:   磁盘盘上就是一个目录
 表:   使用多个文件存储表的信息
 
-[root@db01 oldboy]# 
-[root@db01 oldboy]# ls -l
-
+[root@db01 test]# ls -l
 -rw-rw---- 1 mysql mysql    61 Nov 14 17:54 db.opt
 -rw-rw---- 1 mysql mysql  8556 Nov 14 17:56 t1.frm
 -rw-rw---- 1 mysql mysql 98304 Nov 14 17:56 t1.ibd
 -rw-rw---- 1 mysql mysql  8556 Nov 14 17:57 t2.frm
 -rw-rw---- 1 mysql mysql     0 Nov 14 17:57 t2.MYD
 -rw-rw---- 1 mysql mysql  1024 Nov 14 17:57 t2.MYI
-[root@db01 oldboy]# 
-
 
 mysql 5.7编译安装
-
 下载带有boost的mysql-5.7.20（默认版本为1.59版本）
-
 官方自带（boost版本mysql）
-
 wget https://dev.mysql.com/get/Downloads/MySQL-5.7/mysql-boost-5.7.20.tar.gz
-
 tar xf mysql-boost-5.7.20.tar.gz
 mv mysql-boost-5.7.20 mysql
 安装依赖包
 yum install -y cmake gcc-c++ ncurses-devel perl-Data-Dumper boost boost-doc boost-devel
-
 创建关键目录
-
-mkdir /usr/local/mysql
-mkdir /usr/local/mysql/mydata
-mkdir /usr/local/mysql/conf
+mkdir /data/mysql/{data,conf}
 useradd mysql
-chown -R mysql:mysql /usr/local/mysql*
-
+chown -R mysql. /usr/local/mysql*
 cmake进行预编译：
 cmake -DCMAKE_INSTALL_PREFIX=/usr/local/mysql \
 -DMYSQL_DATADIR=/usr/local/mysql/mydata  \
@@ -419,77 +301,53 @@ cmake -DCMAKE_INSTALL_PREFIX=/usr/local/mysql \
 -DWITH_DEBUG=0 -DMYSQL_MAINTAINER_MODE=0 \
 -DWITH_SSL:STRING=bundled -DWITH_ZLIB:STRING=bundled \
 -DWITH_SYSTEMD=1 -DDOWNLOAD_BOOST=1 -DWITH_BOOST=./boost
-
 make && make install
-
-
 初始化数据:
-
-/usr/local/mysql/bin/mysqld --initialize-insecure  --user=mysql --datadir=/usr/local/mysql/mydata --basedir=/usr/local/mysql
-
-touch /var/log/mysql.log
-chown mysql. /var/log/mysql.log
+/usr/local/mysql/bin/mysqld --initialize-insecure  --user=mysql --datadir=/data/mysql/data --basedir=/usr/local/mysql
+touch /data/mysql/mysql.log
+chown mysql. /data/mysql/mysql.log
 使用systemd管理mysql5.7
-
 （1）书写默认配置文件
-vim /etc/my.cnf
+cat << 'EOF' >/etc/my.cnf
 [mysqld]
 basedir=/usr/local/mysql
-datadir=/usr/local/mysql/mydata
+datadir=/data/mysql/data
 socket=/tmp/mysql.sock
-log_error=/var/log/mysql.log
+log_error=/data/mysql/mysql.log
 user=mysql
 port=6606
 [client]
 socket=/tmp/mysql.sock
-
-(2)生成启动脚本
-vim /etc/systemd/system/mysqld.service
+EOF
+（2）生成启动脚本
+/etc/systemd/system/mysqld.service
 [Unit]
 Description=MySQL Server
 Documentation=man:mysqld(8)
 Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
 After=network.target
 After=syslog.target
-
 [Install]
 WantedBy=multi-user.target
 [Service]
 User=mysql
 Group=mysql
 ExecStart=/usr/local/mysql/bin/mysqld --defaults-file=/etc/my.cnf
-LimitNOFILE = 5000
-
-
-(3)systemd管理
-
+Restart=on-failure
+RestartSec=10s
+LimitNOFILE=65535
+EOF
+（3）systemd管理
 systemctl  start/stop/restart/status   mysqld
-
-
-(4)5.7的区别
-
-5.6 中用户基本信息
+（4）查看密码
+grep password /data/mysql/mysql.log |awk '{print $NF}'
+lC>0oJk;7N;L
+#登录mysql
+mysql -uroot -p 
+#更新密码
+alter user user() identified by '123456';
+（5）查看用户基本信息：
+#5.6
 select user,password,host from mysql.user;
-5.7 中用户基本信息
+#5.7
 select user,authentication_string,host from mysql.user;
-
-课后题:
-思考5.7中忘记root密码怎么办?
-update user set authentication_string=password(‘123456’) where user=’root’ and host=’localhost’，
-
-==================================
-alter user 'root'@'localhost' identified by '9HiBvz6Wm4aCdPA34Spv';
-作业：
-1、mysql5.7.20 二进制的安装部署，有能力的话安装编译版本
-2、mysqld的三层结构的功能
-3、预习day02
-===================================
-
-
-
-
-
-
-
-
-
