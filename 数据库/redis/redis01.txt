@@ -29,10 +29,11 @@ memcache与redis在读写性能的对比
 
 memcached 适合,多用户访问,每个用户少量的rw
 redis     适合,少用户访问,每个用户大量rw				
-Tair：
 
+Tair：
 优点：高性能读写、支持三种存储引擎（ddb、rdb、ldb）、支持高可用、支持分布式分片集群、支撑了几乎所有淘宝业务的缓存。
-缺点：单机情况下，读写性能较其他两种产品较慢	
+缺点：单机情况下，读写性能较其他两种产品较慢
+	
 -------------------------
 3、Redis使用场景介绍
 Memcached：多核的缓存服务，更加适合于多用户并发访问次数较少的应用场景
@@ -43,52 +44,42 @@ Redis一般是单机多实例架构，配合redis集群出现。
 4、Redis安装部署：
 下载：
 wget http://download.redis.io/releases/redis-3.2.12.tar.gz
-解压：
-上传至 /data
 tar xzf redis-3.2.12.tar.gz
-mv redis-3.2.12 redis
-安装：
-cd redis
-make
+cd redis-3.2.12  && make
+
+mkdir -p /usr/local/redis/{etc,bin,data}
+mv redis.conf /usr/local/redis/etc/
+cd src && mv mkreleasehdr.sh redis-benchmark redis-trib.rb redis-sentinel redis-check-aof redis-check-rdb redis-cli redis-server /usr/local/redis/bin/
 启动：
-src/redis-server &
+redis-server &
 
 环境变量：
-vim /etc/profile 
-export PATH=/data/redis/src:$PATH
+echo 'export PATH=/usr/local/redis/bin:$PATH' >>/etc/profile 
 source /etc/profile 
+echo never > /sys/kernel/mm/transparent_hugepage/enabled
 
-
-redis-server & 
-
+#启动
+redis-server /usr/local/redis/etc/redis.conf
+#连接
 redis-cli 
 127.0.0.1:6379> set num 10
 OK
 127.0.0.1:6379> get num
 10
-
-
 ------------------------
-
 5、Redis基本管理操作
-
 5.1基础配置文件介绍：
-
-mkdir /data/6379
-
-vim /data/6379/redis.conf
+vim /usr/local/redis/etc/redis.conf
 daemonize yes
 port 6379
-logfile /data/6379/redis.log
-dir /data/6379
+logfile /usr/local/redis/etc/redis.log
+dir /usr/local/redis/data
 dbfilename dump.rdb
 
 重启redis
 redis-cli shutdown 
-redis-server /data/6379/redis.conf 
-netstat -lnp|grep 63
-
-
+redis-server /usr/local/redis/etc/redis.conf 
+netstat -lnp|grep 6379
 +++++++++++配置文件说明++++++++++++++
 redis.conf
 是否后台运行：
@@ -98,71 +89,44 @@ port 6379
 日志文件位置
 logfile /var/log/redis.log
 持久化文件存储位置
-dir /data/6379
+dir /usr/local/redis/data
 RDB持久化数据文件:
 dbfilename dump.rdb
 +++++++++++++++++++++++++
-
-redis-cli
-127.0.0.1:6379> set name zhangsan 
-OK
-127.0.0.1:6379> get name
-"zhangsan"
-
-
 redis-cli 客户端命令常用参数说明
 
 redis-cli 刚装完,可以在redis服务器上直接登录redis
 -p 6379   指定端口号
 -h        指定链接地址
 -a        指定链接密码
-redis-cli  set num  10 ,无交互执行redis命令
+#无交互执行redis命令
+redis-cli  set num  10 
+#批量执行
 cat /tmp/1.txt |redis-cli
 
-[root@db01 ~]# redis-cli -h 10.0.0.51  -p 6379
-10.0.0.51:6379> 
-
-(error) DENIED Redis is running in protected mode because protected mode is enabled, no bind address was specified, no authentication password is requested to clients. In this mode connections are only accepted from the loopback interface. If you want to connect from external computers to Redis you may adopt one of the following solutions: 
-1) Just disable protected mode sending the command 'CONFIG SET protected-mode no' from the loopback interface by connecting to Redis from the same host the server is running, however MAKE SURE Redis is not publicly accessible from internet if you do so. Use CONFIG REWRITE to make this change permanent. 
-2) Alternatively you can just disable the protected mode by editing the Redis configuration file, and setting the protected mode option to 'no', and then restarting the server. 
-3) If you started the server manually just for testing, restart it with the '--protected-mode no' option.
-
-4) Setup a bind address or an authentication password. NOTE: You only need to do one of the above things in order for the server to start accepting connections from the outside.
-
+[root@supper ~]# redis-cli -h 10.0.0.20  -p 6379
+10.0.0.20:6379>
 -------------------------
-
 5.2 redis安全配置
-
 redis默认开启了保护模式，只允许本地回环地址登录并访问数据库。
-
 禁止protected-mode
-
 protected-mode yes/no （保护模式，是否只允许本地访问）
 ----------------------
-
 (1)Bind :指定IP进行监听
-vim /data/6379/redis.conf
-bind 10.0.0.51  127.0.0.1
+vim /usr/local/redis/etc/redis.conf
+bind 10.0.0.20  127.0.0.1
 
 (2)增加requirepass  {password}
-
-vim /data/6379/redis.conf
+vim /usr/local/redis/etc/redis.conf
 requirepass 123
 
 ----------验证-----
 方法一：
-[root@db03 ~]# redis-cli -a 123
-127.0.0.1:6379> set name zhangsan 
-OK
-127.0.0.1:6379> exit
+redis-cli -a 123
 方法二：
-[root@db03 ~]# redis-cli
-127.0.0.1:6379> auth 123
-OK
-127.0.0.1:6379> set a b
-
+redis-cli
+auth 123
 -------------------------------------------
-
 5.3 在线查看和修改配置
 CONFIG GET *
 CONFIG GET requirepass
@@ -171,21 +135,15 @@ CONFIG SET requirepass 123
 -------------------------------------------
 5.4 redis持久化（内存数据保存到磁盘）
 作用:可以有效防止,在redis宕机后,缓存失效的问题.
-
-RDB
-AOF
-
 RDB 持久化
-	可以在指定的时间间隔内生成数据集的时间点快照（point-in-time snapshot）。
+可以在指定的时间间隔内生成数据集的时间点快照（point-in-time snapshot）。
     优点：速度快，适合于用做备份，主从复制也是基于RDB持久化功能实现的。
     缺点：会有数据丢失
 
 rdb持久化核心配置参数：
-
-vim /data/6379/redis.conf
-dir /data/6379
+vim /usr/local/redis/etc/redis.conf
+dir /usr/local/redis/data
 dbfilename dump.rdb
-
 save 900 1
 save 300 10
 save 60 10000
@@ -194,7 +152,7 @@ save 60 10000
 900秒（15分钟）内有1个更改
 300秒（5分钟）内有10个更改
 60秒内有10000个更改
-    
+
 ----------    
 AOF 持久化(append-only log file)
 	记录服务器执行的所有写操作命令，并在服务器启动时，通过重新执行这些命令来还原数据集。 
@@ -203,20 +161,10 @@ AOF 持久化(append-only log file)
     缺点：日志记录量级比较大
 -------------
 AOF持久化配置
+always 每1个命令,都立即同步到aof 
+everysec 每秒写1次,写入工作交给操作系统,由操作系统判断缓冲区大小,统一写入到aof
 
-appendonly yes
-appendfsync everysec
-
-
-appendfsync always
-appendfsync no
-
-是否打开aof日志功能
-每1个命令,都立即同步到aof 
-每秒写1次
-写入工作交给操作系统,由操作系统判断缓冲区大小,统一写入到aof.
-
-vim /data/6379/redis.conf
+vim /usr/local/redis/etc/redis.conf
 appendonly yes
 appendfsync everysec 
 
@@ -227,9 +175,7 @@ aof：以追加的方式记录redis操作日志的文件。可以最大程度的
 
 --------------------------------------------------------
 6、Redis数据类型(笔试)：
-
 6.1 介绍
-
 String ：     字符类型
 Hash：        字典类型
 List：        列表     
@@ -239,30 +185,20 @@ Sorted set：  有序集合
 ---------------------------
 键      值
 key     value
-
-key     col1 value1  col2 value2 
-
-key     [a,b,c,d]  
-         0 1 2 3
-		 		 
-key1    (a,b,c,d)  
-
-		  10	 20   30  40 
-key1     ( a,    b,   c,  d)  
-           0     1    2   3
-
+key1     col1:value1  col2:value2 
+key2     [a,b,c,d]  0 1 2 3		 		 
+key3    (a,b,c,d)  10	 20   30  40 
+key4     ( a,    b,   c,  d)   0     1    2   3
 		   
 6.2  键的通用操作
-
-KEYS * 	 keys a  keys a*	查看已存在所有键的名字   ****
-TYPE						返回键所存储值的类型     ****
-EXISTS 				        检查是否存在             *****
-EXPIRE\ PEXPIRE 			以秒\毫秒设定生存时间       ***
-TTL\ PTTL 					以秒\毫秒为单位返回生存时间 ***
-PERSIST 					取消生存实现设置            ***
-DEL							删除一个key
-RENAME 				        变更KEY名
-
+KEYS * 	 keys a  keys a*	                查看已存在所有键的名字   ****
+TYPE				返回键所存储值的类型     ****
+EXISTS 				检查是否存在             *****
+EXPIRE \ PEXPIRE 			以秒\毫秒设定生存时间       ***
+TTL \ PTTL 			以秒\毫秒为单位返回生存时间 ***
+PERSIST 				取消生存实现设置            ***
+DEL				删除一个key
+RENAME 				变更KEY名
 
 ---例子：
 127.0.0.1:6379> set name zhangsan 
@@ -278,7 +214,6 @@ OK
 127.0.0.1:6379> ttl a
 (integer) -1
 
-
 ---------------------------------------------
 6.3 string
 ----------
@@ -293,7 +228,7 @@ key:value
 （2）
  MSET id 101 name zhangsan age 20 gender m
  等价于以下操作：
- SET id 101 
+ set id 101 
  set name zhangsan 
  set age 20 
  set gender m
