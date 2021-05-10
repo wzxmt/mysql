@@ -50,8 +50,6 @@ cd redis-3.2.12  && make
 mkdir -p /usr/local/redis/{etc,bin,data}
 mv redis.conf /usr/local/redis/etc/
 cd src && mv mkreleasehdr.sh redis-benchmark redis-trib.rb redis-sentinel redis-check-aof redis-check-rdb redis-cli redis-server /usr/local/redis/bin/
-启动：
-redis-server &
 
 环境变量：
 echo 'export PATH=/usr/local/redis/bin:$PATH' >>/etc/profile 
@@ -303,9 +301,7 @@ select concat("hmset city_",id," id ",id," name ",name," countrycode ",countryco
 
 cat /tmp/hmset.txt |redis-cli -a 123
 
-
 hmset city_1  id 1 name Kabul contrycode AFG district Kabol population  1780000 
-
 
 ---------------------更多的例子
 增
@@ -330,11 +326,8 @@ hkeys myhash  						    获取myhash 键中所有字段的名字
 hvals myhash   						    获取 myhash 键中所有字段的值
 
 ---------------
-
 LIST（列表）
-
 应用场景
-
 消息队列系统
 比如sina微博:在Redis中我们的最新微博ID使用了常驻缓存，这是一直更新的。
 但是做了限制不能超过5000个ID，因此获取ID的函数会一直询问Redis。
