@@ -215,7 +215,7 @@ show databases;
 3.重置密码（5.6）
 update mysql.user set password=PASSWORD('123456') where user='root' and host='localhost';
 #5.7
-update user set authentication_string=password(‘123456’) where user=’root’ and host=’localhost’; 
+update user set authentication_string=password('123456') where user='root' and host='localhost'; 
 4.重启数据
 mysqladmin shutdown
 /etc/init.d/mysqld start
@@ -306,7 +306,9 @@ make && make install
 /usr/local/mysql/bin/mysqld --initialize-insecure  --user=mysql --datadir=/data/mysql/data --basedir=/usr/local/mysql
 touch /data/mysql/mysql.log
 chown mysql. /data/mysql/mysql.log
+
 使用systemd管理mysql5.7
+
 （1）书写默认配置文件
 cat << 'EOF' >/etc/my.cnf
 [mysqld]
@@ -319,8 +321,9 @@ port=6606
 [client]
 socket=/tmp/mysql.sock
 EOF
+
 （2）生成启动脚本
-/etc/systemd/system/mysqld.service
+cat << EOF >/etc/systemd/system/mysqld.service
 [Unit]
 Description=MySQL Server
 Documentation=man:mysqld(8)
@@ -337,8 +340,10 @@ Restart=on-failure
 RestartSec=10s
 LimitNOFILE=65535
 EOF
+
 （3）systemd管理
 systemctl  start/stop/restart/status   mysqld
+
 （4）查看密码
 grep password /data/mysql/mysql.log |awk '{print $NF}'
 lC>0oJk;7N;L
@@ -346,6 +351,7 @@ lC>0oJk;7N;L
 mysql -uroot -p 
 #更新密码
 alter user user() identified by '123456';
+
 （5）查看用户基本信息：
 #5.6
 select user,password,host from mysql.user;
